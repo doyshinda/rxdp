@@ -1,0 +1,19 @@
+[package]
+name = "rxdp"
+version = "0.1.0"
+authors = ["Abe Friesen <abefriesen.af@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "rxdp"
+path = "src/lib.rs"
+
+[dependencies]
+bitflags = "1.2.1"
+libbpf-sys = "0.1.0-1"
+errno = "0.2.6"
+libc = "0.2.80"
+
+[profile.dev]
+opt-level = 0  # Controls the --opt-level the compiler builds with
+debug = true   # Controls whether the compiler passes `-g`
