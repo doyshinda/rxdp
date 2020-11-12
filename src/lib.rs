@@ -9,7 +9,7 @@ pub use error::XDPError;
 pub use maps::{Map, MapFlags};
 pub use map_types::{MapType};
 pub use program::{XDPProgram, AttachFlags};
-use result::XDPResult;
+pub use result::XDPResult;
 
 pub fn load_xdp_program_from_file(file_path: &str) -> XDPResult<XDPProgram> {
     let mut object: *mut libbpf_sys::bpf_object = std::ptr::null_mut();
