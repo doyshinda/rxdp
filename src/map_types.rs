@@ -67,11 +67,10 @@ impl From<u32> for MapType {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_from_u32() {
         for i in 0..27 {

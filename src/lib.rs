@@ -1,14 +1,14 @@
 mod error;
+mod map_types;
 mod maps;
 mod program;
 mod result;
 mod utils;
-mod map_types;
 
 pub use error::XDPError;
+pub use map_types::MapType;
 pub use maps::{Map, MapFlags};
-pub use map_types::{MapType};
-pub use program::{XDPProgram, AttachFlags};
+pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;
 
 pub fn load_xdp_program_from_file(file_path: &str) -> XDPResult<XDPProgram> {

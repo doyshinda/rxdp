@@ -1,7 +1,7 @@
-use std::{cell::RefCell, os::raw::c_int};
 use crate::error::XDPError;
 use crate::result::XDPResult;
 use crate::utils;
+use std::{cell::RefCell, os::raw::c_int};
 
 pub struct XDPProgram {
     pub(crate) object: *const libbpf_sys::bpf_object,
@@ -24,12 +24,16 @@ bitflags::bitflags! {
 
 impl XDPProgram {
     pub fn new(object: *const libbpf_sys::bpf_object, fd: c_int) -> XDPProgram {
-        XDPProgram{object, fd, flags: RefCell::new(0u32)}
+        XDPProgram {
+            object,
+            fd,
+            flags: RefCell::new(0u32),
+        }
     }
 
     pub fn attach_to_interface(&self, interface_name: &str, flags: AttachFlags) -> XDPResult<()> {
         let if_index = utils::lookup_interface_by_name(interface_name)?;
-        let rc = unsafe {libbpf_sys::bpf_set_link_xdp_fd(if_index, self.fd, flags.bits())};
+        let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, self.fd, flags.bits()) };
         if rc < 0 {
             return Err(XDPError::new("Error attaching to interface"));
         }
@@ -40,12 +44,11 @@ impl XDPProgram {
 
     pub fn detach(&self, interface_name: &str) -> XDPResult<()> {
         let if_index = utils::lookup_interface_by_name(interface_name)?;
-        let rc = unsafe {libbpf_sys::bpf_set_link_xdp_fd(if_index, -1, *self.flags.borrow())};
+        let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, -1, *self.flags.borrow()) };
         if rc < 0 {
             Err(XDPError::new("Error attaching to interface"))
         } else {
             Ok(())
         }
-
     }
 }

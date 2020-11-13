@@ -1,11 +1,11 @@
+use crate::error::XDPError;
+use crate::result::XDPResult;
 use libc::if_nametoindex;
 use std::{
     convert::TryInto,
-    ffi::{CString, CStr},
+    ffi::{CStr, CString},
     os::raw::c_char,
 };
-use crate::error::XDPError;
-use crate::result::XDPResult;
 
 pub(crate) fn str_to_cstring(s: &str) -> XDPResult<CString> {
     match CString::new(s) {
@@ -18,14 +18,20 @@ pub(crate) fn str_to_cstring(s: &str) -> XDPResult<CString> {
 }
 
 pub(crate) fn lookup_interface_by_name(name: &str) -> XDPResult<i32> {
-    let index = unsafe {if_nametoindex(str_to_cstring(name)?.as_ptr())};
+    let index = unsafe { if_nametoindex(str_to_cstring(name)?.as_ptr()) };
     if index == 0 {
-        return Err(XDPError::new(&format!("Error finding interface index for {}", name)));
+        return Err(XDPError::new(&format!(
+            "Error finding interface index for {}",
+            name
+        )));
     }
 
     match (index as i32).try_into() {
         Ok(i) => Ok(i),
-        Err(e) => Err(XDPError::new(&format!("Error converting interface index to 'i32': {}", e))),
+        Err(e) => Err(XDPError::new(&format!(
+            "Error converting interface index to 'i32': {}",
+            e
+        ))),
     }
 }
 
