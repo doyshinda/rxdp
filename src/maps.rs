@@ -28,7 +28,6 @@ pub struct KeyValue<K, V> {
 
 pub struct Map<K, V> {
     map_fd: i32,
-    // map_def: *const libbpf_sys::bpf_map_def,
     _key: PhantomData<K>,
     _val: PhantomData<V>,
     map_type: MapType,
@@ -39,13 +38,35 @@ impl<K: Default, V: Default> Map<K, V> {
     /// doesn't match the key/value sizes defined in the underlying eBPF map.
     pub fn new(xdp: &XDPProgram, map_name: &str) -> XDPResult<Map<K, V>> {
         let name = utils::str_to_cstring(map_name)?;
-        let (map_fd, map, map_def) = unsafe {
-            let fd = libbpf_sys::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr());
+        let map_fd =
+            unsafe { libbpf_sys::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
 
+        Map::new_map_from_fd(xdp, map_fd, map_name)
+    }
+
+    /// Create, load and "pin" (if not already pinned) `map_name`. This will fail if the requested
+    /// key/value sizes don't match the key/value sizes defined in the underlying eBPF map, or
+    /// pinning the map fails.
+    pub fn new_pinned(xdp: &XDPProgram, map_name: &str, pin_path: &str) -> XDPResult<Map<K, V>> {
+        let s = utils::str_to_cstring(pin_path)?;
+        let map_fd = unsafe { libbpf_sys::bpf_obj_get(s.as_ptr()) };
+        if map_fd > 0 {
+            println!("Found pinned map with fd {}", map_fd);
+            return Map::new_map_from_fd(xdp, map_fd, map_name);
+        }
+
+        let m: Map<K, V> = Map::new(xdp, map_name)?;
+        let rc = unsafe { libbpf_sys::bpf_obj_pin(m.map_fd, s.as_ptr()) };
+        check_rc(rc, m, "Error pinning map")
+    }
+
+    fn new_map_from_fd(xdp: &XDPProgram, map_fd: i32, map_name: &str) -> XDPResult<Map<K, V>> {
+        let name = utils::str_to_cstring(map_name)?;
+        let (map, map_def) = unsafe {
             let map = libbpf_sys::bpf_object__find_map_by_name(xdp.object, name.as_ptr());
 
             let map_def = libbpf_sys::bpf_map__def(map);
-            (fd, map, map_def)
+            (map, map_def)
         };
 
         if map_fd < 0 || map.is_null() || map_def.is_null() {
@@ -72,24 +93,6 @@ impl<K: Default, V: Default> Map<K, V> {
             );
             return Err(XDPError::new(&error_msg));
         }
-
-        // TODO: Check if this map [is|should be] pinned
-        // unsafe {
-        //     let cstr_path = libbpf_sys::bpf_map__get_pin_path(map);
-
-        //     if !cstr_path.is_null() {
-        //         let path = utils::cstring_to_str(cstr_path);
-
-        //         if !path.is_empty() {
-        //             if !libbpf_sys::bpf_map__is_pinned(map) {
-        //                 let rc = libbpf_sys::bpf_map__pin(map, cstr_path);
-        //                 if rc < 0 {
-        //                     return Err(XDPError::new("Error pinning map"));
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
 
         let map_type: MapType = mtype.into();
         Ok(Map {
