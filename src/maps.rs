@@ -20,6 +20,16 @@ pub enum MapFlags {
     BpfExist = libbpf_sys::BPF_EXIST,
 }
 
+impl From<MapFlags> for u64 {
+    fn from(mp: MapFlags) -> u64 {
+        match mp {
+            MapFlags::BpfAny => 0u64,
+            MapFlags::BpfNoExist => 1u64,
+            MapFlags::BpfExist => 2u64,
+        }
+    }
+}
+
 /// Struct to hold key/value pair when getting all items from a map.
 pub struct KeyValue<K, V> {
     pub key: K,
@@ -94,17 +104,17 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new(&error_msg));
         }
 
-        let map_type: MapType = mtype.into();
         Ok(Map {
             map_fd,
             _key: PhantomData,
             _val: PhantomData,
-            map_type,
+            map_type: mtype.into(),
         })
     }
 
     #[inline]
-    pub fn update(&mut self, key: &K, value: &V, flags: u32) -> XDPResult<()> {
+    /// Update an element in the underlying eBPF map.
+    pub fn update(&mut self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
         let rc = unsafe {
             libbpf_sys::bpf_map_update_elem(
                 self.map_fd,
@@ -118,6 +128,7 @@ impl<K: Default, V: Default> Map<K, V> {
     }
 
     #[inline]
+    /// Delete an element from the underlying eBPF map.
     pub fn delete(&mut self, key: &K) -> XDPResult<()> {
         // Array map types do not support deletes, do an early return to save a syscall.
         match self.map_type {
@@ -139,6 +150,7 @@ impl<K: Default, V: Default> Map<K, V> {
     }
 
     #[inline]
+    /// Lookup an element from the underlying eBPF map.
     pub fn lookup(&self, key: &K) -> XDPResult<V> {
         let mut value: V = Default::default();
         let rc = unsafe {
@@ -152,6 +164,8 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, value, "Error looking up elem")
     }
 
+    /// Can be used for partial iteration through a map (as opposed to `items`, which
+    /// will return all items in the map).
     pub fn get_next_key(&self, key: &K, next_key: &mut K) -> XDPResult<()> {
         let rc = unsafe {
             libbpf_sys::bpf_map_get_next_key(
