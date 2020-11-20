@@ -31,6 +31,7 @@ impl From<MapFlags> for u64 {
 }
 
 /// Struct to hold key/value pair when getting all items from a map.
+#[derive(Debug)]
 pub struct KeyValue<K, V> {
     pub key: K,
     pub value: V,
@@ -52,22 +53,6 @@ impl<K: Default, V: Default> Map<K, V> {
             unsafe { libbpf_sys::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
 
         Map::new_map_from_fd(xdp, map_fd, map_name)
-    }
-
-    /// Create, load and "pin" (if not already pinned) `map_name`. This will fail if the requested
-    /// key/value sizes don't match the key/value sizes defined in the underlying eBPF map, or
-    /// pinning the map fails.
-    pub fn new_pinned(xdp: &XDPProgram, map_name: &str, pin_path: &str) -> XDPResult<Map<K, V>> {
-        let s = utils::str_to_cstring(pin_path)?;
-        let map_fd = unsafe { libbpf_sys::bpf_obj_get(s.as_ptr()) };
-        if map_fd > 0 {
-            println!("Found pinned map with fd {}", map_fd);
-            return Map::new_map_from_fd(xdp, map_fd, map_name);
-        }
-
-        let m: Map<K, V> = Map::new(xdp, map_name)?;
-        let rc = unsafe { libbpf_sys::bpf_obj_pin(m.map_fd, s.as_ptr()) };
-        check_rc(rc, m, "Error pinning map")
     }
 
     fn new_map_from_fd(xdp: &XDPProgram, map_fd: i32, map_name: &str) -> XDPResult<Map<K, V>> {
@@ -166,12 +151,12 @@ impl<K: Default, V: Default> Map<K, V> {
 
     /// Can be used for partial iteration through a map (as opposed to `items`, which
     /// will return all items in the map).
-    pub fn get_next_key(&self, key: &K, next_key: &mut K) -> XDPResult<()> {
+    pub fn get_next_key<T>(&self, prev_key: &T, key: &mut K) -> XDPResult<()> {
         let rc = unsafe {
             libbpf_sys::bpf_map_get_next_key(
                 self.map_fd,
-                key as *const _ as *const c_void,
-                next_key as *mut _ as *mut c_void,
+                prev_key as *const _ as *const c_void,
+                key as *mut _ as *mut c_void,
             )
         };
 
@@ -184,22 +169,31 @@ impl<K: Default, V: Default> Map<K, V> {
     where
         K: Copy,
     {
-        let mut lkey: K = Default::default();
-        let mut next_key: K = Default::default();
+        let mut prev_key: K = Default::default();
+        let mut key: K = Default::default();
 
         let mut result = Vec::new();
-        while let Ok(_) = self.get_next_key(&lkey, &mut next_key) {
-            result.push(KeyValue {
-                key: lkey,
-                value: self.lookup(&lkey)?,
-            });
-            lkey = next_key;
-        }
 
-        result.push(KeyValue {
-            key: lkey,
-            value: self.lookup(&lkey)?,
-        });
+        let mut c = 0;
+        loop {
+            let nxt = if c == 0 {
+                let first_key: *const i32 = std::ptr::null();
+                self.get_next_key(&first_key, &mut key)
+            } else {
+                self.get_next_key(&prev_key, &mut key)
+            };
+
+            if nxt.is_err() {
+                break;
+            }
+
+            result.push(KeyValue {
+                key: key,
+                value: self.lookup(&key)?,
+            });
+            prev_key = key;
+            c += 1;
+        }
 
         Ok(result)
     }
