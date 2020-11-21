@@ -37,6 +37,7 @@ pub struct KeyValue<K, V> {
     pub value: V,
 }
 
+/// Struct that handles interacting with the underlying eBPF map.
 pub struct Map<K, V> {
     map_fd: i32,
     _key: PhantomData<K>,
