@@ -54,7 +54,6 @@
 //! }
 //!```
 
-
 mod error;
 mod map_types;
 mod maps;
@@ -66,6 +65,6 @@ mod utils;
 pub use error::XDPError;
 pub use map_types::MapType;
 pub use maps::{Map, MapFlags};
-pub use object::load_pinned_object;
+pub use object::{load_pinned_object, XDPObject};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

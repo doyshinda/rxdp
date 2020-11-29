@@ -1,9 +1,10 @@
 use errno::{set_errno, Errno};
+use libbpf_sys as bpf;
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void};
 
 use crate::error::XDPError;
 use crate::map_types::MapType;
-use crate::program::XDPProgram;
+use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
 use crate::utils;
 
@@ -11,13 +12,13 @@ use crate::utils;
 #[repr(u32)]
 pub enum MapFlags {
     /// Create a new element or update an existing element.
-    BpfAny = libbpf_sys::BPF_ANY,
+    BpfAny = bpf::BPF_ANY,
 
     /// Create a new element only if it did not exist.
-    BpfNoExist = libbpf_sys::BPF_NOEXIST,
+    BpfNoExist = bpf::BPF_NOEXIST,
 
     /// Update an existing element.
-    BpfExist = libbpf_sys::BPF_EXIST,
+    BpfExist = bpf::BPF_EXIST,
 }
 
 impl From<MapFlags> for u64 {
@@ -48,20 +49,19 @@ pub struct Map<K, V> {
 impl<K: Default, V: Default> Map<K, V> {
     /// Create and load `map_name`. This will fail if the requested key/value sizes
     /// doesn't match the key/value sizes defined in the underlying eBPF map.
-    pub fn new(xdp: &XDPProgram, map_name: &str) -> XDPResult<Map<K, V>> {
+    pub fn new(xdp: &XDPLoadedObject, map_name: &str) -> XDPResult<Map<K, V>> {
         let name = utils::str_to_cstring(map_name)?;
-        let map_fd =
-            unsafe { libbpf_sys::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
+        let map_fd = unsafe { bpf::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
 
         Map::new_map_from_fd(xdp, map_fd, map_name)
     }
 
-    fn new_map_from_fd(xdp: &XDPProgram, map_fd: i32, map_name: &str) -> XDPResult<Map<K, V>> {
+    fn new_map_from_fd(xdp: &XDPLoadedObject, map_fd: i32, map_name: &str) -> XDPResult<Map<K, V>> {
         let name = utils::str_to_cstring(map_name)?;
         let (map, map_def) = unsafe {
-            let map = libbpf_sys::bpf_object__find_map_by_name(xdp.object, name.as_ptr());
+            let map = bpf::bpf_object__find_map_by_name(xdp.object, name.as_ptr());
 
-            let map_def = libbpf_sys::bpf_map__def(map);
+            let map_def = bpf::bpf_map__def(map);
             (map, map_def)
         };
 
@@ -102,7 +102,7 @@ impl<K: Default, V: Default> Map<K, V> {
     /// Update an element in the underlying eBPF map.
     pub fn update(&mut self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
         let rc = unsafe {
-            libbpf_sys::bpf_map_update_elem(
+            bpf::bpf_map_update_elem(
                 self.map_fd,
                 key as *const _ as *const c_void,
                 value as *const _ as *const c_void,
@@ -128,9 +128,7 @@ impl<K: Default, V: Default> Map<K, V> {
             }
             _ => (),
         }
-        let rc = unsafe {
-            libbpf_sys::bpf_map_delete_elem(self.map_fd, key as *const _ as *const c_void)
-        };
+        let rc = unsafe { bpf::bpf_map_delete_elem(self.map_fd, key as *const _ as *const c_void) };
 
         check_rc(rc, (), "Error deleting elem")
     }
@@ -140,7 +138,7 @@ impl<K: Default, V: Default> Map<K, V> {
     pub fn lookup(&self, key: &K) -> XDPResult<V> {
         let mut value: V = Default::default();
         let rc = unsafe {
-            libbpf_sys::bpf_map_lookup_elem(
+            bpf::bpf_map_lookup_elem(
                 self.map_fd,
                 key as *const _ as *const c_void,
                 &mut value as *mut _ as *mut c_void,
@@ -154,7 +152,7 @@ impl<K: Default, V: Default> Map<K, V> {
     /// will return all items in the map).
     pub fn get_next_key<T>(&self, prev_key: &T, key: &mut K) -> XDPResult<()> {
         let rc = unsafe {
-            libbpf_sys::bpf_map_get_next_key(
+            bpf::bpf_map_get_next_key(
                 self.map_fd,
                 prev_key as *const _ as *const c_void,
                 key as *mut _ as *mut c_void,

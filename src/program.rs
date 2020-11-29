@@ -1,14 +1,13 @@
-use std::collections::HashSet;
-
 use crate::error::XDPError;
 use crate::result::XDPResult;
 use crate::utils;
 use std::{cell::RefCell, os::raw::c_int};
 
 /// Convenience wrapper around an XDP program
+#[allow(dead_code)]
 pub struct XDPProgram {
-    pub(crate) object: *const libbpf_sys::bpf_object,
-    fd: c_int,
+    prog: *const libbpf_sys::bpf_program,
+    pub fd: c_int,
     flags: RefCell<u32>,
 }
 
@@ -26,12 +25,16 @@ bitflags::bitflags! {
 }
 
 impl XDPProgram {
-    fn new(object: *const libbpf_sys::bpf_object, fd: c_int) -> XDPProgram {
-        XDPProgram {
-            object,
+    pub(crate) fn new(prog: *mut libbpf_sys::bpf_program) -> XDPResult<XDPProgram> {
+        let fd = unsafe { libbpf_sys::bpf_program__fd(prog) };
+        if fd < 0 {
+            return Err(XDPError::new("Error getting program fd"));
+        }
+        Ok(XDPProgram {
+            prog,
             fd,
             flags: RefCell::new(0u32),
-        }
+        })
     }
 
     /// Attaches the XDP program to an interface
@@ -55,47 +58,5 @@ impl XDPProgram {
         } else {
             Ok(())
         }
-    }
-
-    /// Loads an XDP program from an ELF file. Pins the requested maps to `/sys/fs/bpf/`.
-    pub fn load_xdp_program_from_file(file_path: &str, maps_to_pin: HashSet<String>)
-        -> XDPResult<XDPProgram>
-    {
-        let (object, fd) = unsafe {
-            let obj = libbpf_sys::bpf_object__open(utils::str_to_cstring(file_path)?.as_ptr());
-            if obj.is_null() {
-                return Err(XDPError::new("Error opening ELF file"));
-            }
-
-            let mut map: *mut libbpf_sys::bpf_map = std::ptr::null_mut();
-            map = libbpf_sys::bpf_map__next(map, obj);
-            while !map.is_null() {
-                let map_name = libbpf_sys::bpf_map__name(map);
-                let r_map_name = utils::cstring_to_str(map_name);
-                if maps_to_pin.contains(&r_map_name) {
-                    let pin_path = utils::str_to_cstring(&format!("/sys/fs/bpf/{}", r_map_name))?;
-                    let rc = libbpf_sys::bpf_map__set_pin_path(map, pin_path.as_ptr());
-                    if rc < 0 {
-                        return Err(XDPError::new("error setting pin path"));
-                    }
-                }
-                map = libbpf_sys::bpf_map__next(map, obj);
-            }
-
-            let rc = libbpf_sys::bpf_object__load(obj);
-            if rc < 0 {
-                return Err(XDPError::new("Error loading object"));
-            }
-
-            let mut prog: *mut libbpf_sys::bpf_program = std::ptr::null_mut();
-            prog = libbpf_sys::bpf_program__next(prog, obj);
-            if prog.is_null() {
-                return Err(XDPError::new("Error finding program in ELF file"));
-            }
-            let fd = libbpf_sys::bpf_program__fd(prog);
-            (obj, fd)
-        };
-
-        Ok(XDPProgram::new(object, fd))
     }
 }
