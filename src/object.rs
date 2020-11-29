@@ -52,7 +52,7 @@ impl XDPObject {
         Ok(())
     }
 
-    /// Load into kernel
+    /// Load eBPF maps and programs into the kernel
     pub fn load(self) -> XDPResult<XDPLoadedObject> {
         XDPLoadedObject::new(self)
     }
