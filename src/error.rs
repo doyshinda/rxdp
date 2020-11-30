@@ -1,4 +1,4 @@
-use errno::errno;
+use errno::{errno, set_errno, Errno};
 use std::fmt;
 
 /// Error information about the attempted BPF operation
@@ -40,4 +40,12 @@ impl fmt::Display for XDPError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} [errno: {}]", self.description, self.code)
     }
+}
+
+pub(crate) fn reset_errno() {
+    set_errno(Errno(0));
+}
+
+pub(crate) fn get_errno() -> i32 {
+    errno().0
 }

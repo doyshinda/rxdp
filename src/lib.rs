@@ -89,6 +89,6 @@ mod utils;
 pub use error::XDPError;
 pub use map_types::MapType;
 pub use maps::{Map, MapFlags};
-pub use object::{load_pinned_object, XDPObject, XDPLoadedObject};
+pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

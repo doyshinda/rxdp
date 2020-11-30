@@ -1,4 +1,4 @@
-use crate::error::XDPError;
+use crate::error::{get_errno, reset_errno, XDPError};
 use crate::program::XDPProgram;
 use crate::result::XDPResult;
 use crate::utils;
@@ -21,26 +21,28 @@ pub struct XDPLoadedObject {
 impl XDPObject {
     /// Read the ELF file at `file_path` and attempt to create a bpf object
     pub fn new(file_path: &str) -> XDPResult<Self> {
-        let object = unsafe {
-            let obj = bpf::bpf_object__open(utils::str_to_cstring(file_path)?.as_ptr());
-            if obj.is_null() {
-                return Err(XDPError::new("Error creating object from ELF file"));
-            }
-            obj
-        };
-        return Ok(Self { object });
+        // The returned pointer is non-null, even on error. Reset the errno value and check after.
+        reset_errno();
+        let object = unsafe { bpf::bpf_object__open(utils::str_to_cstring(file_path)?.as_ptr()) };
+        if get_errno() != 0 {
+            Err(XDPError::new("Error creating object from ELF file"))
+        } else {
+            Ok(Self { object })
+        }
     }
 
     /// Loads any previously pinned maps from the fs and/or sets maps to be pinned. Uses the
     /// default path at `/sys/fs/bpf/` when looking for/pinning maps.
-    pub fn pinned_maps(&self, maps_to_pin: HashSet<String>) -> XDPResult<()> {
+    pub fn pinned_maps(&self, maps: &HashSet<String>, path: Option<&str>) -> XDPResult<()> {
+        let base_path = path.unwrap_or("/sys/fs/bpf").trim_end_matches('/');
+
         unsafe {
             let mut map: *mut bpf::bpf_map = std::ptr::null_mut();
             map = bpf::bpf_map__next(map, self.object);
             while !map.is_null() {
                 let map_name = utils::cstring_to_str(bpf::bpf_map__name(map));
-                if maps_to_pin.contains(&map_name) {
-                    let pin_path = utils::str_to_cstring(&format!("/sys/fs/bpf/{}", map_name))?;
+                if maps.contains(&map_name) {
+                    let pin_path = utils::str_to_cstring(&format!("{}/{}", base_path, map_name))?;
                     let rc = bpf::bpf_map__set_pin_path(map, pin_path.as_ptr());
                     if rc < 0 {
                         return Err(XDPError::new("error setting pin path"));

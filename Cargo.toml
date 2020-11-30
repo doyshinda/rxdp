@@ -14,6 +14,10 @@ libbpf-sys = "0.1.0-1"
 errno = "0.2.6"
 libc = "0.2.80"
 
+[dev-dependencies]
+lazy_static = "*"
+rand = "*"
+
 [profile.dev]
 opt-level = 0  # Controls the --opt-level the compiler builds with
 debug = true   # Controls whether the compiler passes `-g`

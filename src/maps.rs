@@ -43,7 +43,10 @@ pub struct Map<K, V> {
     map_fd: i32,
     _key: PhantomData<K>,
     _val: PhantomData<V>,
-    map_type: MapType,
+    pub map_type: MapType,
+
+    /// The maximum number of entries the map supports
+    pub max_entries: u32,
 }
 
 impl<K: Default, V: Default> Map<K, V> {
@@ -71,8 +74,14 @@ impl<K: Default, V: Default> Map<K, V> {
         }
 
         // Sanity check key & value sizes.
-        let (ksize, vsize, mtype) =
-            unsafe { ((*map_def).key_size, (*map_def).value_size, (*map_def).type_) };
+        let (ksize, vsize, mtype, max_entries) = unsafe {
+            (
+                (*map_def).key_size,
+                (*map_def).value_size,
+                (*map_def).type_,
+                (*map_def).max_entries,
+            )
+        };
         let (req_key_size, req_val_size) = (size_of::<K>() as u32, size_of::<V>() as u32);
         if req_key_size != ksize {
             let error_msg = format!(
@@ -95,6 +104,7 @@ impl<K: Default, V: Default> Map<K, V> {
             _key: PhantomData,
             _val: PhantomData,
             map_type: mtype.into(),
+            max_entries,
         })
     }
 
@@ -171,9 +181,35 @@ impl<K: Default, V: Default> Map<K, V> {
         let mut prev_key: K = Default::default();
         let mut key: K = Default::default();
 
-        let mut result = Vec::new();
+        let mut result = Vec::with_capacity(self.max_entries as usize);
 
         let mut c = 0;
+        if self.is_array() {
+            // Bit of a hack here. `bpf_map_get_next_key` converts the pointer to the key to
+            // a `u64`, so the first "key" returned in actually index 1, and we never lookup
+            // the value from index 0:
+            //
+            // int bpf_map_get_next_key(int fd, const void *key, void *next_key)
+            // {
+            //     union bpf_attr attr;
+            //
+            //     memset(&attr, 0, sizeof(attr));
+            //     attr.map_fd = fd;
+            //     attr.key = ptr_to_u64(key);
+            //     attr.next_key = ptr_to_u64(next_key);
+            //
+            //     return sys_bpf(BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
+            // }
+            //
+            // I'm assuming that someone isn't doing something silly like implementing `Default`
+            // with a non-zero value for a `u32`/`i32` and that therefore `prev_key` will be 0.
+            result.push(KeyValue {
+                key: prev_key,
+                value: self.lookup(&prev_key)?,
+            });
+            c = 1;
+        }
+
         loop {
             let nxt = if c == 0 {
                 let first_key: *const i32 = std::ptr::null();
@@ -195,6 +231,17 @@ impl<K: Default, V: Default> Map<K, V> {
         }
 
         Ok(result)
+    }
+
+    fn is_array(&self) -> bool {
+        match self.map_type {
+            MapType::Array
+            | MapType::PerCPUArray
+            | MapType::ArrayOfMaps
+            | MapType::ProgArray
+            | MapType::PerfEventArray => true,
+            _ => false,
+        }
     }
 }
 
