@@ -2,6 +2,7 @@
 
 docker: Dockerfile startup.sh
 	docker build -t "rxdp:latest" .
+	touch docker
 
 dev:
 	/bin/bash

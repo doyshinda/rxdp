@@ -4,5 +4,5 @@
 mount bpffs /sys/fs/bpf -t bpf
 ulimit -l unlimited
 
-source ~/.bashrc
-exec "$@"
+export PATH=$PATH:~/.cargo/bin
+$@
