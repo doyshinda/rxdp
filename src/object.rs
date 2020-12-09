@@ -5,6 +5,7 @@ use crate::utils;
 
 use libbpf_sys as bpf;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 /// Convenience wrapper around an XDP object
 pub struct XDPObject {
@@ -42,7 +43,9 @@ impl XDPObject {
             while !map.is_null() {
                 let map_name = utils::cstring_to_str(bpf::bpf_map__name(map));
                 if maps.contains(&map_name) {
-                    let pin_path = utils::str_to_cstring(&format!("{}/{}", base_path, map_name))?;
+                    let pin_path = format!("{}/{}", base_path, map_name);
+                    sanitize_special_maps(map, &pin_path)?;
+                    let pin_path = utils::str_to_cstring(&pin_path)?;
                     let rc = bpf::bpf_map__set_pin_path(map, pin_path.as_ptr());
                     if rc < 0 {
                         return Err(XDPError::new("error setting pin path"));
@@ -116,4 +119,22 @@ pub fn load_pinned_object(pin_path: &str) -> XDPResult<i32> {
     }
 
     Ok(prog_fd)
+}
+
+unsafe fn sanitize_special_maps(map: *mut bpf::bpf_map, pin_path: &str) -> XDPResult<()> {
+    let map_def = bpf::bpf_map__def(map);
+
+    // DEVMAP sets map_flags = 0x80 automatically. In order to reuse the
+    // pinned map, the flags have to match.
+    if (*map_def).type_ == bpf::BPF_MAP_TYPE_DEVMAP {
+        if Path::new(pin_path).exists() {
+            let mut existing_flags = (*map_def).map_flags;
+            existing_flags |= 0x80;
+            if bpf::bpf_map__set_map_flags(map, existing_flags) < 0 {
+                return Err(XDPError::new("Error setting BPF_MAP_TYPE_DEVMAP map flags for pinned map"));
+            }
+        }
+    }
+
+    Ok(())
 }

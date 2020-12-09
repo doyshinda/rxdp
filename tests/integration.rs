@@ -7,6 +7,7 @@ use utils::{test_object, loaded_object};
 const MAP_LRU_HASH: &'static str = "lru_hash";
 const MAP_HASH: &'static str = "hash";
 const MAP_ARRAY: &'static str = "array";
+const DEV_MAP: &'static str = "dev_map";
 const PROG_TEST: &'static str = "rxdp_test";
 
 #[test]
@@ -166,48 +167,24 @@ fn test_hash_map_operations() {
     test_map_operations(&mut m, key, val);
 }
 
-// #[test]
-// fn test_array_items() {
-//     let obj = loaded_object();
-//     let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_ARRAY).unwrap();
-
-//     for i in 0..5 {
-//         let key = i as u32;
-//         let val = (i * 2) as u32;
-//         m.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
-//         let got = m.lookup(&key).unwrap();
-//         println!("for index {}, added: {}, got: {}", i, val, got);
-//     }
-
-//     let mut c = 0;
-//     // for kv in m.array_items().unwrap() {
-//     for kv in m.array_items().unwrap() {
-//         println!("for index {}, got k: {} v: {}", c, kv.key, kv.value);
-//         c += 1;
-//     }
-// }
-
 #[test]
 fn test_array_map_operations() {
     let obj = loaded_object();
     let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_ARRAY).unwrap();
     let key = 0u32;
     let val = 100u32;
-
-    // for i in 0..5 {
-    //     let key = i as u32;
-    //     let val = (i * 2) as u32;
-    //     m.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
-    //     let got = m.lookup(&key).unwrap();
-    //     println!("for index {}, added: {}, got: {}", i, val, got);
-    // }
-
-    // let mut c = 0;
-    // for kv in m.items().unwrap() {
-    //     println!("for index {}, got k: {} v: {}", c, kv.key, kv.value);
-    //     c += 1;
-    // }
     test_map_operations(&mut m, key, val);
+}
+
+#[test]
+fn test_dev_map_operations() {
+    let obj = loaded_object();
+
+    let iface = utils::test_iface();
+    let mut m: rxdp::Map<u32, i32> = rxdp::Map::new(&obj, DEV_MAP).unwrap();
+    let key = 0u32;
+    let index = utils::lookup_interface_by_name(&iface.name).unwrap();
+    test_map_operations(&mut m, key, index);
 }
 
 fn test_map_operations<K, V>(m: &mut rxdp::Map<K, V>, key: K, val: V)
@@ -229,8 +206,6 @@ where
         let r = m.lookup(&key);
         assert!(r.is_err());
     }
-
-    // m.lookup(&key).unwrap();
 
     let num_items = m.items().unwrap().len();
     if is_array {

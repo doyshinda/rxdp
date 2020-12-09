@@ -1,7 +1,12 @@
 use lazy_static::lazy_static;
+use libc::if_nametoindex;
 use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use std::process::Command;
+use std::{
+    convert::TryInto,
+    ffi::CString,
+    process::Command,
+};
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
@@ -81,4 +86,32 @@ pub fn test_iface() -> TestIface {
         .expect("failed to create interface");
 
     TestIface{name}
+}
+
+pub(crate) fn str_to_cstring(s: &str) -> Result<CString, String> {
+    match CString::new(s) {
+        Ok(c) => Ok(c),
+        Err(e) => {
+            let error_msg = format!("Error creating C string: {:?}", e);
+            Err(error_msg)
+        }
+    }
+}
+
+pub fn lookup_interface_by_name(name: &str) -> Result<i32, String> {
+    let index = unsafe { if_nametoindex(str_to_cstring(name)?.as_ptr()) };
+    if index == 0 {
+        return Err(format!(
+            "Error finding interface index for {}",
+            name
+        ));
+    }
+
+    match (index as i32).try_into() {
+        Ok(i) => Ok(i),
+        Err(e) => Err(format!(
+            "Error converting interface index to 'i32': {}",
+            e
+        )),
+    }
 }

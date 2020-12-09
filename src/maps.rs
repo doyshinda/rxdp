@@ -222,9 +222,17 @@ impl<K: Default, V: Default> Map<K, V> {
                 break;
             }
 
+            // Handle special maps. `get_next_key` didn't return an error, but when looking
+            // up the first element, we encountered an error. This is indicative of a map that
+            // had map_flags=BPF_F_NO_PREALLOC OR a DEV_MAP.
+            let maybe_val = self.lookup(&key);
+            if c == 0 && maybe_val.is_err() {
+                return Ok(result);
+            }
+
             result.push(KeyValue {
                 key: key,
-                value: self.lookup(&key)?,
+                value: maybe_val?,
             });
             prev_key = key;
             c += 1;
