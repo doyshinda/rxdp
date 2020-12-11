@@ -124,6 +124,41 @@ impl<K: Default, V: Default> Map<K, V> {
     }
 
     #[inline]
+    /// Update a batch of elements in the underlying eBPF map.
+    pub fn update_batch(&mut self, keys: &mut Vec<K>, values: &mut Vec<V>, flags: MapFlags)
+        -> XDPResult<u32>
+    {
+        let num_keys = keys.len();
+        let num_vals = values.len();
+        if num_keys != num_vals {
+            set_errno(Errno(22));
+            let err = format!(
+                "Num keys must match num values. Got {} keys, {} values",
+                num_keys, num_vals
+            );
+            return Err(XDPError::new(&err));
+        }
+
+        let mut count: u32 = num_keys as u32;
+        let opts = bpf::bpf_map_batch_opts{
+            sz: 24u64,
+            elem_flags: flags.into(),
+            flags: 0u64,
+        };
+        let rc = unsafe {
+            bpf::bpf_map_update_batch(
+                self.map_fd,
+                keys.as_mut_ptr() as *mut c_void,
+                values.as_mut_ptr() as *mut c_void,
+                &mut count,
+                &opts,
+            )
+        };
+
+        check_rc(rc, count, "Error updating batch of elements")
+    }
+
+    #[inline]
     /// Delete an element from the underlying eBPF map.
     pub fn delete(&mut self, key: &K) -> XDPResult<()> {
         // Array map types do not support deletes, do an early return to save a syscall.

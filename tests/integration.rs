@@ -187,6 +187,22 @@ fn test_dev_map_operations() {
     test_map_operations(&mut m, key, index);
 }
 
+#[test]
+fn test_hash_map_batch_operations() {
+    let obj = loaded_object();
+    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
+    let mut keys = Vec::new();
+    keys.push(100u32);
+    keys.push(101u32);
+
+    let mut vals = Vec::new();
+    vals.push(200u32);
+    vals.push(201u32);
+
+    let num_added = m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+    assert_eq!(num_added, 2);
+}
+
 fn test_map_operations<K, V>(m: &mut rxdp::Map<K, V>, key: K, val: V)
 where
     K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
