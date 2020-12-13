@@ -20,7 +20,12 @@ pub struct XDPError {
 
 impl XDPError {
     pub fn new(err_msg: &str) -> Self {
-        let e = errno();
+        let mut e = errno();
+
+        // Re-map ENOTSUPP -> ENOTSUP
+        if e.0 == 524 {
+            e = Errno(95)
+        }
         XDPError {
             description: format!("{}: {}", err_msg, e),
             code: e.0,

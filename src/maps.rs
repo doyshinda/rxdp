@@ -184,17 +184,11 @@ impl<K: Default, V: Default> Map<K, V> {
     /// Delete an element from the underlying eBPF map.
     pub fn delete(&mut self, key: &K) -> XDPResult<()> {
         // Array map types do not support deletes, do an early return to save a syscall.
-        match self.map_type {
-            MapType::Array
-            | MapType::PerCPUArray
-            | MapType::ArrayOfMaps
-            | MapType::ProgArray
-            | MapType::PerfEventArray => {
-                set_errno(Errno(22));
-                return Err(XDPError::new("Delete not supported on this map type"));
-            }
-            _ => (),
+        if is_array(&self.map_type) {
+            set_errno(Errno(22));
+            return Err(XDPError::new("Delete not supported on this map type"));
         }
+
         let rc = unsafe { bpf::bpf_map_delete_elem(self.map_fd, key as *const _ as *const c_void) };
 
         check_rc(rc, (), "Error deleting elem")
@@ -244,7 +238,59 @@ impl<K: Default, V: Default> Map<K, V> {
         keys.resize_with(batch_size as usize, Default::default);
         vals.resize_with(batch_size as usize, Default::default);
 
-        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals)?;
+        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, false)?;
+        let mut result = Vec::with_capacity(r.num_items as usize);
+        vals.truncate(r.num_items as usize);
+        for k in keys.drain(..r.num_items as usize).rev() {
+            result.push(KeyValue {
+                key: k,
+                value: vals.pop().unwrap(),
+            })
+        }
+
+        Ok(BatchResult {
+            items: result,
+            next_key: r.next_key,
+            num_items: r.num_items,
+        })
+    }
+
+    #[inline]
+    /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
+    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// continue looking up elements:
+    /// ```ignore
+    /// let next_key = None;
+    /// loop {
+    ///     let r = self.lookup_and_delete_batch(10u32, next_key)?;
+    ///     // do something with `r.items`...
+    ///
+    ///     if r.next_key.is_none() {
+    ///         break;
+    ///     }
+    ///     next_key = r.next_key;
+    /// }
+    /// ```
+    /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
+    /// elements, particularly when the `batch_size` is small. If the number of elements returned
+    /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
+    pub fn lookup_and_delete_batch(
+        &self,
+        batch_size: u32,
+        next_key: Option<u32>,
+    ) -> XDPResult<BatchResult<K, V>> {
+        // Array map types do not support deletes, do an early return to save a syscall.
+        if is_array(&self.map_type) {
+            set_errno(Errno(22));
+            return Err(XDPError::new("Delete not supported on this map type"));
+        }
+
+        let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
+        let mut vals: Vec<V> = Vec::with_capacity(batch_size as usize);
+        keys.resize_with(batch_size as usize, Default::default);
+        vals.resize_with(batch_size as usize, Default::default);
+
+        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, true)?;
         let mut result = Vec::with_capacity(r.num_items as usize);
         vals.truncate(r.num_items as usize);
         for k in keys.drain(..r.num_items as usize).rev() {
@@ -267,34 +313,33 @@ impl<K: Default, V: Default> Map<K, V> {
         next_key: Option<u32>,
         keys: &mut Vec<K>,
         vals: &mut Vec<V>,
+        delete: bool,
     ) -> XDPResult<BatchResultInternal> {
         let mut count = batch_size;
         let mut nkey = 0u32;
 
         reset_errno();
+        let bpf_func = if delete {
+            bpf::bpf_map_lookup_and_delete_batch
+        } else {
+            bpf::bpf_map_lookup_batch
+        };
+
+        let mut lookup = |fkey: *mut c_void| unsafe {
+            bpf_func(
+                self.map_fd,
+                fkey,
+                &mut nkey as *mut _ as *mut c_void,
+                keys.as_mut_ptr() as *mut c_void,
+                vals.as_mut_ptr() as *mut c_void,
+                &mut count,
+                &BATCH_OPTS,
+            )
+        };
+
         let mut rc = match next_key {
-            Some(mut k) => unsafe {
-                bpf::bpf_map_lookup_batch(
-                    self.map_fd,
-                    &mut k as *mut _ as *mut c_void,
-                    &mut nkey as *mut _ as *mut c_void,
-                    keys.as_mut_ptr() as *mut c_void,
-                    vals.as_mut_ptr() as *mut c_void,
-                    &mut count,
-                    &BATCH_OPTS,
-                )
-            },
-            None => unsafe {
-                bpf::bpf_map_lookup_batch(
-                    self.map_fd,
-                    std::ptr::null_mut() as *mut c_void,
-                    &mut nkey as *mut _ as *mut c_void,
-                    keys.as_mut_ptr() as *mut c_void,
-                    vals.as_mut_ptr() as *mut c_void,
-                    &mut count,
-                    &BATCH_OPTS,
-                )
-            },
+            Some(mut k) => lookup(&mut k as *mut _ as *mut c_void),
+            None => lookup(std::ptr::null_mut() as *mut c_void),
         };
 
         let e = get_errno();
@@ -339,7 +384,7 @@ impl<K: Default, V: Default> Map<K, V> {
         let mut result = Vec::with_capacity(self.max_entries as usize);
 
         let mut c = 0;
-        if self.is_array() {
+        if is_array(&self.map_type) {
             // Bit of a hack here. `bpf_map_get_next_key` converts the pointer to the key to
             // a `u64`, so the first "key" returned in actually index 1, and we never lookup
             // the value from index 0:
@@ -415,7 +460,8 @@ impl<K: Default, V: Default> Map<K, V> {
         loop {
             keys.resize_with(BATCH_SIZE as usize, Default::default);
             vals.resize_with(BATCH_SIZE as usize, Default::default);
-            let r = self.lookup_batch_prealloc(BATCH_SIZE, next_key, &mut keys, &mut vals)?;
+            let r =
+                self.lookup_batch_prealloc(BATCH_SIZE, next_key, &mut keys, &mut vals, false)?;
             vals.truncate(r.num_items as usize);
             for k in keys.drain(..r.num_items as usize).rev() {
                 result.push(KeyValue {
@@ -432,17 +478,6 @@ impl<K: Default, V: Default> Map<K, V> {
 
         Ok(result)
     }
-
-    fn is_array(&self) -> bool {
-        match self.map_type {
-            MapType::Array
-            | MapType::PerCPUArray
-            | MapType::ArrayOfMaps
-            | MapType::ProgArray
-            | MapType::PerfEventArray => true,
-            _ => false,
-        }
-    }
 }
 
 fn check_rc<T>(rc: i32, ret: T, err_msg: &str) -> XDPResult<T> {
@@ -450,5 +485,16 @@ fn check_rc<T>(rc: i32, ret: T, err_msg: &str) -> XDPResult<T> {
         Err(XDPError::new(err_msg))
     } else {
         Ok(ret)
+    }
+}
+
+fn is_array(mt: &MapType) -> bool {
+    match *mt {
+        MapType::Array
+        | MapType::PerCPUArray
+        | MapType::ArrayOfMaps
+        | MapType::ProgArray
+        | MapType::PerfEventArray => true,
+        _ => false,
     }
 }

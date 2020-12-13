@@ -9,6 +9,7 @@ const MAP_LRU_HASH: &'static str = "lru_hash";
 const MAP_HASH: &'static str = "hash";
 const MAP_HASH_BIG: &'static str = "big_hash";
 const MAP_ARRAY: &'static str = "array";
+const MAP_ARRAY_BIG: &'static str = "big_array";
 const DEV_MAP: &'static str = "dev_map";
 const PROG_TEST: &'static str = "rxdp_test";
 
@@ -196,7 +197,7 @@ fn test_hash_map_batch_operations() {
     let mut keys = Vec::new();
     let mut vals = Vec::new();
     let batch_size = 10;
-    let total = 100;
+    let total = m.max_entries;
     for i in 100..(100 + total) {
         keys.push(i as u32);
         vals.push((i + 100) as u32);
@@ -206,31 +207,51 @@ fn test_hash_map_batch_operations() {
     assert_eq!(num_added, total);
 
     let mut received = 0;
-    let mut r = m.lookup_batch(batch_size, None).unwrap();
-    received += r.num_items;
-    for kv in r.items {
-        assert_eq!(kv.key + 100, kv.value);
-    }
-
+    let mut next_key = None;
     while received < total {
-        r = m.lookup_batch(batch_size, r.next_key).unwrap();
+        let r = m.lookup_batch(batch_size, next_key).unwrap();
         received += r.num_items;
         for kv in r.items {
             assert_eq!(kv.key + 100, kv.value);
         }
+        next_key = r.next_key;
     }
 
     assert_eq!(received, total);
+
+    let mut received = 0;
+    let mut next_key = None;
+    while received < total {
+        let r = m.lookup_and_delete_batch(batch_size, next_key).unwrap();
+        received += r.num_items;
+        for kv in r.items {
+            assert_eq!(kv.key + 100, kv.value);
+        }
+        next_key = r.next_key;
+    }
+
+    assert_eq!(received, total);
+    let items = m.items().unwrap();
+    assert!(items.is_empty());
 }
 
 #[test]
-fn test_items() {
+fn test_items_big_hash_map() {
+    test_items(MAP_HASH_BIG);
+}
+
+#[test]
+fn test_items_big_array_map() {
+    test_items(MAP_ARRAY_BIG);
+}
+
+fn test_items(map_name: &str) {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH_BIG).unwrap();
+    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, map_name).unwrap();
     let mut keys = Vec::new();
     let mut vals = Vec::new();
     let total = m.max_entries;
-    for i in 100..(100 + total) {
+    for i in 0..total {
         keys.push(i as u32);
         vals.push((i + 100) as u32);
     }
@@ -249,7 +270,7 @@ fn test_items() {
             verify.insert(kv.key, kv.value);
         }
 
-        for i in 100..(100 + total) {
+        for i in 0..total {
             let (k, v) = verify.get_key_value(&i).unwrap();
             assert_eq!(*k + 100, *v);
         }
@@ -296,9 +317,50 @@ where
         }
     }
 
+    let del_resp = m.delete(&key);
     if !is_array {
-        m.delete(&key).unwrap();
+        assert!(del_resp.is_ok());
         let r = m.lookup(&key);
         assert!(r.is_err());
+    } else {
+        assert!(del_resp.is_err());
+    }
+
+
+    if m.map_type != rxdp::MapType::DevMap {
+        let mut keys = Vec::new();
+        let mut vals = Vec::new();
+        keys.push(key);
+        vals.push(val);
+        m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+
+        let mut received = 0;
+        let mut next_key = None;
+        let expected = match is_array {
+            true => m.max_entries,
+            _ => 1,
+        };
+        while received < expected {
+            let r = m.lookup_batch(10u32, next_key).unwrap();
+            received += r.num_items;
+            next_key = r.next_key;
+        }
+
+        assert_eq!(received, expected);
+
+        if !is_array {
+            let mut received = 0;
+            let mut next_key = None;
+            while received < expected {
+                let r = m.lookup_and_delete_batch(10u32, next_key).unwrap();
+                received += r.num_items;
+                next_key = r.next_key;
+            }
+
+            assert_eq!(received, expected);
+
+            let items = m.items().unwrap();
+            assert!(items.is_empty());
+        }
     }
 }
