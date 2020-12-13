@@ -15,9 +15,15 @@ errno = "0.2.6"
 libc = "0.2.80"
 
 [dev-dependencies]
-lazy_static = "*"
-rand = "*"
+lazy_static = "1.4.0"
+rand = "0.7.3"
+criterion = "0.3"
 
 [profile.dev]
 opt-level = 0  # Controls the --opt-level the compiler builds with
 debug = true   # Controls whether the compiler passes `-g`
+
+
+[[bench]]
+name = "rxdp_benchmark"
+harness = false
