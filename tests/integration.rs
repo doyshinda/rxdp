@@ -1,11 +1,13 @@
 use rxdp;
 use std::path::Path;
+use std::collections::HashMap;
 
 mod utils;
 use utils::{test_object, loaded_object};
 
 const MAP_LRU_HASH: &'static str = "lru_hash";
 const MAP_HASH: &'static str = "hash";
+const MAP_HASH_BIG: &'static str = "big_hash";
 const MAP_ARRAY: &'static str = "array";
 const DEV_MAP: &'static str = "dev_map";
 const PROG_TEST: &'static str = "rxdp_test";
@@ -192,16 +194,68 @@ fn test_hash_map_batch_operations() {
     let obj = loaded_object();
     let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
     let mut keys = Vec::new();
-    keys.push(100u32);
-    keys.push(101u32);
-
     let mut vals = Vec::new();
-    vals.push(200u32);
-    vals.push(201u32);
+    let batch_size = 10;
+    let total = 100;
+    for i in 100..(100 + total) {
+        keys.push(i as u32);
+        vals.push((i + 100) as u32);
+    }
 
     let num_added = m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
-    assert_eq!(num_added, 2);
+    assert_eq!(num_added, total);
+
+    let mut received = 0;
+    let mut r = m.lookup_batch(batch_size, None).unwrap();
+    received += r.num_items;
+    for kv in r.items {
+        assert_eq!(kv.key + 100, kv.value);
+    }
+
+    while received < total {
+        r = m.lookup_batch(batch_size, r.next_key).unwrap();
+        received += r.num_items;
+        for kv in r.items {
+            assert_eq!(kv.key + 100, kv.value);
+        }
+    }
+
+    assert_eq!(received, total);
 }
+
+#[test]
+fn test_items() {
+    let obj = loaded_object();
+    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH_BIG).unwrap();
+    let mut keys = Vec::new();
+    let mut vals = Vec::new();
+    let total = m.max_entries;
+    for i in 100..(100 + total) {
+        keys.push(i as u32);
+        vals.push((i + 100) as u32);
+    }
+
+    let num_added = m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+    assert_eq!(num_added, total);
+
+    for _ in 0..2 {
+        let items = m.items().unwrap();
+        assert_eq!(items.len(), total as usize);
+
+        let mut verify = HashMap::new();
+
+        for kv in items {
+            assert_eq!(kv.key + 100, kv.value);
+            verify.insert(kv.key, kv.value);
+        }
+
+        for i in 100..(100 + total) {
+            let (k, v) = verify.get_key_value(&i).unwrap();
+            assert_eq!(*k + 100, *v);
+        }
+    }
+}
+
 
 fn test_map_operations<K, V>(m: &mut rxdp::Map<K, V>, key: K, val: V)
 where

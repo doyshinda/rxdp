@@ -131,7 +131,9 @@ unsafe fn sanitize_special_maps(map: *mut bpf::bpf_map, pin_path: &str) -> XDPRe
             let mut existing_flags = (*map_def).map_flags;
             existing_flags |= 0x80;
             if bpf::bpf_map__set_map_flags(map, existing_flags) < 0 {
-                return Err(XDPError::new("Error setting BPF_MAP_TYPE_DEVMAP map flags for pinned map"));
+                return Err(XDPError::new(
+                    "Error setting BPF_MAP_TYPE_DEVMAP map flags for pinned map",
+                ));
             }
         }
     }

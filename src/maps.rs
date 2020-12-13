@@ -2,11 +2,18 @@ use errno::{set_errno, Errno};
 use libbpf_sys as bpf;
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void};
 
-use crate::error::XDPError;
+use crate::error::{get_errno, reset_errno, XDPError};
 use crate::map_types::MapType;
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
 use crate::utils;
+
+const BATCH_SIZE: u32 = 100;
+const BATCH_OPTS: bpf::bpf_map_batch_opts = bpf::bpf_map_batch_opts {
+    sz: 24u64,
+    elem_flags: 0u64,
+    flags: 0u64,
+};
 
 /// Flags that control map `update` behaviour.
 #[repr(u32)]
@@ -36,6 +43,18 @@ impl From<MapFlags> for u64 {
 pub struct KeyValue<K, V> {
     pub key: K,
     pub value: V,
+}
+
+// Struct to hold the result of a batch operation.
+pub struct BatchResult<K, V> {
+    pub items: Vec<KeyValue<K, V>>,
+    pub next_key: Option<u32>,
+    pub num_items: u32,
+}
+
+struct BatchResultInternal {
+    next_key: Option<u32>,
+    num_items: u32,
 }
 
 /// Struct that handles interacting with the underlying eBPF map.
@@ -125,9 +144,12 @@ impl<K: Default, V: Default> Map<K, V> {
 
     #[inline]
     /// Update a batch of elements in the underlying eBPF map.
-    pub fn update_batch(&mut self, keys: &mut Vec<K>, values: &mut Vec<V>, flags: MapFlags)
-        -> XDPResult<u32>
-    {
+    pub fn update_batch(
+        &mut self,
+        keys: &mut Vec<K>,
+        values: &mut Vec<V>,
+        flags: MapFlags,
+    ) -> XDPResult<u32> {
         let num_keys = keys.len();
         let num_vals = values.len();
         if num_keys != num_vals {
@@ -140,7 +162,7 @@ impl<K: Default, V: Default> Map<K, V> {
         }
 
         let mut count: u32 = num_keys as u32;
-        let opts = bpf::bpf_map_batch_opts{
+        let opts = bpf::bpf_map_batch_opts {
             sz: 24u64,
             elem_flags: flags.into(),
             flags: 0u64,
@@ -193,6 +215,106 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, value, "Error looking up elem")
     }
 
+    #[inline]
+    /// Lookup a batch of elements from the underlying eBPF map. Returns a
+    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// continue looking up elements:
+    /// ```ignore
+    /// let next_key = None;
+    /// loop {
+    ///     let r = self.lookup_batch(10u32, next_key)?;
+    ///     // do something with `r.items`...
+    ///
+    ///     if r.next_key.is_none() {
+    ///         break;
+    ///     }
+    ///     next_key = r.next_key;
+    /// }
+    /// ```
+    /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
+    /// elements, particularly when the `batch_size` is small. If the number of elements returned
+    /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
+    pub fn lookup_batch(
+        &self,
+        batch_size: u32,
+        next_key: Option<u32>,
+    ) -> XDPResult<BatchResult<K, V>> {
+        let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
+        let mut vals: Vec<V> = Vec::with_capacity(batch_size as usize);
+        keys.resize_with(batch_size as usize, Default::default);
+        vals.resize_with(batch_size as usize, Default::default);
+
+        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals)?;
+        let mut result = Vec::with_capacity(r.num_items as usize);
+        vals.truncate(r.num_items as usize);
+        for k in keys.drain(..r.num_items as usize).rev() {
+            result.push(KeyValue {
+                key: k,
+                value: vals.pop().unwrap(),
+            })
+        }
+
+        Ok(BatchResult {
+            items: result,
+            next_key: r.next_key,
+            num_items: r.num_items,
+        })
+    }
+
+    fn lookup_batch_prealloc(
+        &self,
+        batch_size: u32,
+        next_key: Option<u32>,
+        keys: &mut Vec<K>,
+        vals: &mut Vec<V>,
+    ) -> XDPResult<BatchResultInternal> {
+        let mut count = batch_size;
+        let mut nkey = 0u32;
+
+        reset_errno();
+        let mut rc = match next_key {
+            Some(mut k) => unsafe {
+                bpf::bpf_map_lookup_batch(
+                    self.map_fd,
+                    &mut k as *mut _ as *mut c_void,
+                    &mut nkey as *mut _ as *mut c_void,
+                    keys.as_mut_ptr() as *mut c_void,
+                    vals.as_mut_ptr() as *mut c_void,
+                    &mut count,
+                    &BATCH_OPTS,
+                )
+            },
+            None => unsafe {
+                bpf::bpf_map_lookup_batch(
+                    self.map_fd,
+                    std::ptr::null_mut() as *mut c_void,
+                    &mut nkey as *mut _ as *mut c_void,
+                    keys.as_mut_ptr() as *mut c_void,
+                    vals.as_mut_ptr() as *mut c_void,
+                    &mut count,
+                    &BATCH_OPTS,
+                )
+            },
+        };
+
+        let e = get_errno();
+        if rc < 0 && (e == 28 || e == 2) {
+            rc = 0;
+        }
+
+        let next_key = match e {
+            2 => None,
+            _ => Some(nkey),
+        };
+
+        let ret = BatchResultInternal {
+            next_key: next_key,
+            num_items: count,
+        };
+
+        check_rc(rc, ret, "Error looking up batch of elements")
+    }
+
     /// Can be used for partial iteration through a map (as opposed to `items`, which
     /// will return all items in the map).
     pub fn get_next_key<T>(&self, prev_key: &T, key: &mut K) -> XDPResult<()> {
@@ -207,9 +329,7 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, (), "Error getting next key")
     }
 
-    /// Returns all items in the map. Note that for Array type maps, this will always
-    /// return `max_entries` number of items.
-    pub fn items(&self) -> XDPResult<Vec<KeyValue<K, V>>>
+    fn _items(&self) -> XDPResult<Vec<KeyValue<K, V>>>
     where
         K: Copy,
     {
@@ -271,6 +391,43 @@ impl<K: Default, V: Default> Map<K, V> {
             });
             prev_key = key;
             c += 1;
+        }
+
+        Ok(result)
+    }
+
+    #[inline]
+    /// Returns all items in the map. Note that for Array type maps, this will always
+    /// return `max_entries` number of items.
+    pub fn items(&self) -> XDPResult<Vec<KeyValue<K, V>>>
+    where
+        K: Copy,
+    {
+        if self.map_type == MapType::DevMap || self.max_entries < 50 {
+            return self._items();
+        }
+        let mut keys: Vec<K> = Vec::with_capacity(BATCH_SIZE as usize);
+        let mut vals: Vec<V> = Vec::with_capacity(BATCH_SIZE as usize);
+
+        let mut result = Vec::with_capacity(1000 as usize);
+        let mut next_key = None;
+
+        loop {
+            keys.resize_with(BATCH_SIZE as usize, Default::default);
+            vals.resize_with(BATCH_SIZE as usize, Default::default);
+            let r = self.lookup_batch_prealloc(BATCH_SIZE, next_key, &mut keys, &mut vals)?;
+            vals.truncate(r.num_items as usize);
+            for k in keys.drain(..r.num_items as usize).rev() {
+                result.push(KeyValue {
+                    key: k,
+                    value: vals.pop().unwrap(),
+                })
+            }
+
+            if r.next_key.is_none() {
+                break;
+            }
+            next_key = r.next_key;
         }
 
         Ok(result)

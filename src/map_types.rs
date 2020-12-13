@@ -1,5 +1,6 @@
 #[allow(non_camel_case_types)]
 #[repr(u32)]
+#[derive(PartialEq)]
 /// Valid eBPF map types
 pub enum MapType {
     Unspec = libbpf_sys::BPF_MAP_TYPE_UNSPEC,
