@@ -49,7 +49,7 @@ pub struct KeyValue<K, V> {
     pub value: V,
 }
 
-// Struct to hold the result of a batch operation.
+/// Struct to hold the result of a batch operation.
 pub struct BatchResult<K, V> {
     pub items: Vec<KeyValue<K, V>>,
     pub next_key: Option<u32>,
@@ -394,8 +394,8 @@ impl<K: Default, V: Default> Map<K, V> {
 
         while more {
             // Handle special maps. DEV_MAP holds references to network interfaces, which can
-            // be deleted causing the lookup for that key failing, but there could be more values
-            // further in the map.
+            // be deleted, causing the lookup for that key to fail. However, there could be more
+            // values further in the map.
             let maybe_val = self.lookup(&key);
             if self.map_type == MapType::DevMap && maybe_val.is_err() {
                 more = self.get_next_key(&key as *const _ as *const c_void, &mut key).is_ok();

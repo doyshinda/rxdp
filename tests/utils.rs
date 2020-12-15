@@ -21,11 +21,8 @@ pub fn random_string() -> String {
 }
 
 pub fn get_test_dir() -> String {
-    let exe = std::env::current_exe().unwrap();
-    let path = exe.to_str().unwrap();
-    let parts: Vec<&str> = path.split('/').skip(1).collect();
-    
-    format!("/{}/tests/testdata", parts[0])
+    let src_dir = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    format!("{}/tests/testdata", src_dir.to_str().unwrap())
 }
 
 pub fn test_object() -> rxdp::XDPObject {

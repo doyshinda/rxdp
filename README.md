@@ -76,3 +76,15 @@ for kv in m.items().unwrap() {
     println!("key: {}, value: {}", kv.key, kv.value);
 }
 ```
+
+## Testing
+Running tests requires root access, so it's best to run them in a Docker container:
+```sh
+make docker-test
+```
+
+## Benchmarks
+Running benchmarks requires root access, so it's best to run them in a Docker container:
+```sh
+make docker-bench
+```
