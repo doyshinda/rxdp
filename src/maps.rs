@@ -240,26 +240,7 @@ impl<K: Default, V: Default> Map<K, V> {
         batch_size: u32,
         next_key: Option<u32>,
     ) -> XDPResult<BatchResult<K, V>> {
-        let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
-        let mut vals: Vec<V> = Vec::with_capacity(batch_size as usize);
-        keys.resize_with(batch_size as usize, Default::default);
-        vals.resize_with(batch_size as usize, Default::default);
-
-        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, false)?;
-        let mut result = Vec::with_capacity(r.num_items as usize);
-        vals.truncate(r.num_items as usize);
-        for k in keys.drain(..r.num_items as usize).rev() {
-            result.push(KeyValue {
-                key: k,
-                value: vals.pop().unwrap(),
-            })
-        }
-
-        Ok(BatchResult {
-            items: result,
-            next_key: r.next_key,
-            num_items: r.num_items,
-        })
+        self.lookup_batch_impl(batch_size, next_key, false)
     }
 
     #[cfg(batch)]
@@ -293,20 +274,24 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new("Delete not supported on this map type"));
         }
 
+        self.lookup_batch_impl(batch_size, next_key, true)
+    }
+
+    #[cfg(batch)]
+    fn lookup_batch_impl(
+        &self,
+        batch_size: u32,
+        next_key: Option<u32>,
+        delete: bool
+    ) -> XDPResult<BatchResult<K, V>> {
         let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
         let mut vals: Vec<V> = Vec::with_capacity(batch_size as usize);
         keys.resize_with(batch_size as usize, Default::default);
         vals.resize_with(batch_size as usize, Default::default);
 
-        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, true)?;
+        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, delete)?;
         let mut result = Vec::with_capacity(r.num_items as usize);
-        vals.truncate(r.num_items as usize);
-        for k in keys.drain(..r.num_items as usize).rev() {
-            result.push(KeyValue {
-                key: k,
-                value: vals.pop().unwrap(),
-            })
-        }
+        populate_batch_result(r.num_items, &mut result, &mut keys, &mut vals);
 
         Ok(BatchResult {
             items: result,
@@ -446,13 +431,7 @@ impl<K: Default, V: Default> Map<K, V> {
             vals.resize_with(BATCH_SIZE as usize, Default::default);
             let r =
                 self.lookup_batch_prealloc(BATCH_SIZE, next_key, &mut keys, &mut vals, false)?;
-            vals.truncate(r.num_items as usize);
-            for k in keys.drain(..r.num_items as usize).rev() {
-                result.push(KeyValue {
-                    key: k,
-                    value: vals.pop().unwrap(),
-                })
-            }
+            populate_batch_result(r.num_items, &mut result, &mut keys, &mut vals);
 
             if r.next_key.is_none() {
                 break;
@@ -480,5 +459,16 @@ fn is_array(mt: &MapType) -> bool {
         | MapType::ProgArray
         | MapType::PerfEventArray => true,
         _ => false,
+    }
+}
+
+#[cfg(batch)]
+fn populate_batch_result<K, V>(n: u32, result: &mut Vec<KeyValue<K, V>>, keys: &mut Vec<K>, vals: &mut Vec<V>) {
+    vals.truncate(n as usize);
+    for k in keys.drain(..n as usize).rev() {
+        result.push(KeyValue {
+            key: k,
+            value: vals.pop().unwrap(),
+        })
     }
 }
