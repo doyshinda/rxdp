@@ -31,8 +31,9 @@
 //! once the program is loaded, they will get automatically pinned.
 //! ```ignore
 //! let mut pinned_maps = HashSet::new();
+//! let pin_path = None;
 //! pinned_maps.insert("my_map_name".to_string());
-//! obj.pinned_maps(pinned_maps).unwrap();
+//! obj.pinned_maps(pinned_maps, pin_path).unwrap();
 //! ```
 //!
 //! ### Load the object (programs + maps) into the kernel.

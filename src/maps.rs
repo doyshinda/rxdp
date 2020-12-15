@@ -2,13 +2,17 @@ use errno::{set_errno, Errno};
 use libbpf_sys as bpf;
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void};
 
-use crate::error::{get_errno, reset_errno, XDPError};
+use crate::error::XDPError;
 use crate::map_types::MapType;
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
 use crate::utils;
 
+#[cfg(batch)]
+use crate::error::{get_errno, reset_errno};
+#[cfg(batch)]
 const BATCH_SIZE: u32 = 100;
+#[cfg(batch)]
 const BATCH_OPTS: bpf::bpf_map_batch_opts = bpf::bpf_map_batch_opts {
     sz: 24u64,
     elem_flags: 0u64,
@@ -52,6 +56,7 @@ pub struct BatchResult<K, V> {
     pub num_items: u32,
 }
 
+#[cfg(batch)]
 struct BatchResultInternal {
     next_key: Option<u32>,
     num_items: u32,
@@ -129,7 +134,7 @@ impl<K: Default, V: Default> Map<K, V> {
 
     #[inline]
     /// Update an element in the underlying eBPF map.
-    pub fn update(&mut self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
+    pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
         let rc = unsafe {
             bpf::bpf_map_update_elem(
                 self.map_fd,
@@ -142,10 +147,11 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, (), "Error updating elem")
     }
 
+    #[cfg(batch)]
     #[inline]
     /// Update a batch of elements in the underlying eBPF map.
     pub fn update_batch(
-        &mut self,
+        &self,
         keys: &mut Vec<K>,
         values: &mut Vec<V>,
         flags: MapFlags,
@@ -182,7 +188,7 @@ impl<K: Default, V: Default> Map<K, V> {
 
     #[inline]
     /// Delete an element from the underlying eBPF map.
-    pub fn delete(&mut self, key: &K) -> XDPResult<()> {
+    pub fn delete(&self, key: &K) -> XDPResult<()> {
         // Array map types do not support deletes, do an early return to save a syscall.
         if is_array(&self.map_type) {
             set_errno(Errno(22));
@@ -209,6 +215,7 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, value, "Error looking up elem")
     }
 
+    #[cfg(batch)]
     #[inline]
     /// Lookup a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
@@ -255,6 +262,7 @@ impl<K: Default, V: Default> Map<K, V> {
         })
     }
 
+    #[cfg(batch)]
     #[inline]
     /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
@@ -307,6 +315,7 @@ impl<K: Default, V: Default> Map<K, V> {
         })
     }
 
+    #[cfg(batch)]
     fn lookup_batch_prealloc(
         &self,
         batch_size: u32,
@@ -360,13 +369,11 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, ret, "Error looking up batch of elements")
     }
 
-    /// Can be used for partial iteration through a map (as opposed to `items`, which
-    /// will return all items in the map).
-    pub fn get_next_key<T>(&self, prev_key: &T, key: &mut K) -> XDPResult<()> {
+    fn get_next_key(&self, prev_key: *const c_void, key: &mut K) -> XDPResult<()> {
         let rc = unsafe {
             bpf::bpf_map_get_next_key(
                 self.map_fd,
-                prev_key as *const _ as *const c_void,
+                prev_key,
                 key as *mut _ as *mut c_void,
             )
         };
@@ -378,69 +385,46 @@ impl<K: Default, V: Default> Map<K, V> {
     where
         K: Copy,
     {
-        let mut prev_key: K = Default::default();
         let mut key: K = Default::default();
-
         let mut result = Vec::with_capacity(self.max_entries as usize);
+        let mut more = {
+            let first_key: *const i32 = std::ptr::null();
+            self.get_next_key(first_key as *const c_void, &mut key).is_ok()
+        };
 
-        let mut c = 0;
-        if is_array(&self.map_type) {
-            // Bit of a hack here. `bpf_map_get_next_key` converts the pointer to the key to
-            // a `u64`, so the first "key" returned in actually index 1, and we never lookup
-            // the value from index 0:
-            //
-            // int bpf_map_get_next_key(int fd, const void *key, void *next_key)
-            // {
-            //     union bpf_attr attr;
-            //
-            //     memset(&attr, 0, sizeof(attr));
-            //     attr.map_fd = fd;
-            //     attr.key = ptr_to_u64(key);
-            //     attr.next_key = ptr_to_u64(next_key);
-            //
-            //     return sys_bpf(BPF_MAP_GET_NEXT_KEY, &attr, sizeof(attr));
-            // }
-            //
-            // I'm assuming that someone isn't doing something silly like implementing `Default`
-            // with a non-zero value for a `u32`/`i32` and that therefore `prev_key` will be 0.
-            result.push(KeyValue {
-                key: prev_key,
-                value: self.lookup(&prev_key)?,
-            });
-            c = 1;
-        }
-
-        loop {
-            let nxt = if c == 0 {
-                let first_key: *const i32 = std::ptr::null();
-                self.get_next_key(&first_key, &mut key)
-            } else {
-                self.get_next_key(&prev_key, &mut key)
-            };
-
-            if nxt.is_err() {
-                break;
-            }
-
-            // Handle special maps. `get_next_key` didn't return an error, but when looking
-            // up the first element, we encountered an error. This is indicative of a map that
-            // had map_flags=BPF_F_NO_PREALLOC OR a DEV_MAP.
+        while more {
+            // Handle special maps. DEV_MAP holds references to network interfaces, which can
+            // be deleted causing the lookup for that key failing, but there could be more values
+            // further in the map.
             let maybe_val = self.lookup(&key);
-            if c == 0 && maybe_val.is_err() {
-                return Ok(result);
+            if self.map_type == MapType::DevMap && maybe_val.is_err() {
+                more = self.get_next_key(&key as *const _ as *const c_void, &mut key).is_ok();
+                continue;
             }
 
             result.push(KeyValue {
                 key: key,
                 value: maybe_val?,
             });
-            prev_key = key;
-            c += 1;
+
+            more = self.get_next_key(&key as *const _ as *const c_void, &mut key).is_ok();
         }
 
         Ok(result)
     }
 
+    #[cfg(not(batch))]
+    #[inline]
+    /// Returns all items in the map. Note that for Array type maps, this will always
+    /// return `max_entries` number of items.
+    pub fn items(&self) -> XDPResult<Vec<KeyValue<K, V>>>
+    where
+        K: Copy,
+    {
+        self._items()
+    }
+
+    #[cfg(batch)]
     #[inline]
     /// Returns all items in the map. Note that for Array type maps, this will always
     /// return `max_entries` number of items.

@@ -60,7 +60,7 @@ fn test_pinned_map_values() {
     obj1.pinned_maps(&pinned_maps, Some(&test_dir.path)).unwrap();
     let obj1 = obj1.load().unwrap();
 
-    let mut m1: rxdp::Map<u32, u32> = rxdp::Map::new(&obj1, MAP_LRU_HASH).unwrap();
+    let m1: rxdp::Map<u32, u32> = rxdp::Map::new(&obj1, MAP_LRU_HASH).unwrap();
     let key = 100u32;
     let val = 101u32;
     m1.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
@@ -155,28 +155,28 @@ fn test_attach_program_no_interface() {
 #[test]
 fn test_lru_hash_map_operations() {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_LRU_HASH).unwrap();
+    let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_LRU_HASH).unwrap();
     let key = 100u32;
     let val = 101u32;
-    test_map_operations(&mut m, key, val);
+    test_map_operations(&m, key, val);
 }
 
 #[test]
 fn test_hash_map_operations() {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
+    let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
     let key = 100u32;
     let val = 101u32;
-    test_map_operations(&mut m, key, val);
+    test_map_operations(&m, key, val);
 }
 
 #[test]
 fn test_array_map_operations() {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_ARRAY).unwrap();
+    let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_ARRAY).unwrap();
     let key = 0u32;
     let val = 100u32;
-    test_map_operations(&mut m, key, val);
+    test_map_operations(&m, key, val);
 }
 
 #[test]
@@ -184,16 +184,17 @@ fn test_dev_map_operations() {
     let obj = loaded_object();
 
     let iface = utils::test_iface();
-    let mut m: rxdp::Map<u32, i32> = rxdp::Map::new(&obj, DEV_MAP).unwrap();
+    let m: rxdp::Map<u32, i32> = rxdp::Map::new(&obj, DEV_MAP).unwrap();
     let key = 0u32;
     let index = utils::lookup_interface_by_name(&iface.name).unwrap();
-    test_map_operations(&mut m, key, index);
+    test_map_operations(&m, key, index);
 }
 
+#[cfg(batch)]
 #[test]
 fn test_hash_map_batch_operations() {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
+    let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
     let mut keys = Vec::new();
     let mut vals = Vec::new();
     let batch_size = 10;
@@ -236,6 +237,16 @@ fn test_hash_map_batch_operations() {
 }
 
 #[test]
+fn test_items_hash_map() {
+    test_items(MAP_HASH);
+}
+
+#[test]
+fn test_items_array_map() {
+    test_items(MAP_ARRAY);
+}
+
+#[test]
 fn test_items_big_hash_map() {
     test_items(MAP_HASH_BIG);
 }
@@ -247,7 +258,7 @@ fn test_items_big_array_map() {
 
 fn test_items(map_name: &str) {
     let obj = loaded_object();
-    let mut m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, map_name).unwrap();
+    let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, map_name).unwrap();
     let mut keys = Vec::new();
     let mut vals = Vec::new();
     let total = m.max_entries;
@@ -256,7 +267,7 @@ fn test_items(map_name: &str) {
         vals.push((i + 100) as u32);
     }
 
-    let num_added = m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+    let num_added = update_batch(&m, &mut keys, &mut vals);
     assert_eq!(num_added, total);
 
     for _ in 0..2 {
@@ -278,7 +289,7 @@ fn test_items(map_name: &str) {
 }
 
 
-fn test_map_operations<K, V>(m: &mut rxdp::Map<K, V>, key: K, val: V)
+fn test_map_operations<K, V>(m: &rxdp::Map<K, V>, key: K, val: V)
 where
     K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
     V: Default + std::cmp::PartialEq + std::fmt::Debug,
@@ -328,39 +339,80 @@ where
 
 
     if m.map_type != rxdp::MapType::DevMap {
-        let mut keys = Vec::new();
-        let mut vals = Vec::new();
-        keys.push(key);
-        vals.push(val);
-        m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+        test_batch_operations(m, key, val, is_array);
+    }
+}
 
+#[cfg(batch)]
+fn test_batch_operations<K, V>(m: &rxdp::Map<K, V>, key: K, val: V, is_array: bool)
+where
+    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
+    V: Default + std::cmp::PartialEq + std::fmt::Debug,
+{
+    let mut keys = Vec::new();
+    let mut vals = Vec::new();
+    keys.push(key);
+    vals.push(val);
+    m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+
+    let mut received = 0;
+    let mut next_key = None;
+    let expected = match is_array {
+        true => m.max_entries,
+        _ => 1,
+    };
+    while received < expected {
+        let r = m.lookup_batch(10u32, next_key).unwrap();
+        received += r.num_items;
+        next_key = r.next_key;
+    }
+
+    assert_eq!(received, expected);
+
+    if !is_array {
         let mut received = 0;
         let mut next_key = None;
-        let expected = match is_array {
-            true => m.max_entries,
-            _ => 1,
-        };
         while received < expected {
-            let r = m.lookup_batch(10u32, next_key).unwrap();
+            let r = m.lookup_and_delete_batch(10u32, next_key).unwrap();
             received += r.num_items;
             next_key = r.next_key;
         }
 
         assert_eq!(received, expected);
 
-        if !is_array {
-            let mut received = 0;
-            let mut next_key = None;
-            while received < expected {
-                let r = m.lookup_and_delete_batch(10u32, next_key).unwrap();
-                received += r.num_items;
-                next_key = r.next_key;
-            }
-
-            assert_eq!(received, expected);
-
-            let items = m.items().unwrap();
-            assert!(items.is_empty());
-        }
+        let items = m.items().unwrap();
+        assert!(items.is_empty());
     }
+}
+
+#[cfg(not(batch))]
+fn test_batch_operations<K, V>(_m: &rxdp::Map<K, V>, _k: K, _v: V, _i: bool)
+where
+    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
+    V: Default + std::cmp::PartialEq + std::fmt::Debug,
+{
+    ()
+}
+
+#[cfg(batch)]
+fn update_batch<K, V>(m: &rxdp::Map<K, V>, keys: &mut Vec<K>, vals: &mut Vec<V>) -> u32
+where
+    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
+    V: Default + std::cmp::PartialEq + std::fmt::Debug,
+{
+    m.update_batch(keys, vals, rxdp::MapFlags::BpfAny).unwrap();
+    return keys.len() as u32;
+}
+
+#[cfg(not(batch))]
+fn update_batch<K, V>(m: &rxdp::Map<K, V>, keys: &mut Vec<K>, vals: &mut Vec<V>) -> u32
+where
+    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
+    V: Default + std::cmp::PartialEq + std::fmt::Debug,
+{
+    let num_items = keys.len();
+    for i in 0..num_items {
+        m.update(&mut keys[i], &mut vals[i], rxdp::MapFlags::BpfAny).unwrap();
+    }
+    num_items as u32
 }
