@@ -132,19 +132,23 @@ impl<K: Default, V: Default> Map<K, V> {
         })
     }
 
-    #[inline]
-    /// Update an element in the underlying eBPF map.
-    pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
+    fn _update(&self, key: &K, value: &V, flags: u64) -> XDPResult<()> {
         let rc = unsafe {
             bpf::bpf_map_update_elem(
                 self.map_fd,
                 key as *const _ as *const c_void,
                 value as *const _ as *const c_void,
-                flags.into(),
+                flags,
             )
         };
 
         check_rc(rc, (), "Error updating elem")
+    }
+
+    #[inline]
+    /// Update an element in the underlying eBPF map.
+    pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
+        self._update(key, value, flags.into())
     }
 
     #[cfg(batch)]
@@ -184,6 +188,24 @@ impl<K: Default, V: Default> Map<K, V> {
         };
 
         check_rc(rc, count, "Error updating batch of elements")
+    }
+
+    #[cfg(not(batch))]
+    #[inline]
+    /// Update a batch of elements in the underlying eBPF map.
+    pub fn update_batch(
+        &self,
+        keys: &mut Vec<K>,
+        values: &mut Vec<V>,
+        flags: MapFlags,
+    ) -> XDPResult<u32> {
+        let num_items = keys.len();
+        let flags = flags.into();
+        for i in 0..num_items {
+            self._update(&keys[i], &values[i], flags)?
+        }
+
+        Ok(num_items as u32)
     }
 
     #[inline]
