@@ -488,6 +488,7 @@ name = "rxdp"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "cc",
  "criterion",
  "errno",
  "lazy_static",

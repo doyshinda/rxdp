@@ -207,7 +207,7 @@ impl<K: Default, V: Default> Map<K, V> {
         flags: MapFlags,
     ) -> XDPResult<u32> {
         let num_items = keys.len();
-        let flags = flags.into();
+        let flags = flags as u64;
         for i in 0..num_items {
             self._update(&keys[i], &values[i], flags)?
         }

@@ -4,7 +4,7 @@ use rxdp;
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
-    pub static ref TEST_FILE: String = format!("{}/{}", *TEST_DATA_DIR, "test.elf");
+    pub static ref TEST_FILE: String = format!("{}/{}", *TEST_DATA_DIR, "test.o");
     pub static ref PIN_PATH: String = "/sys/fs/bpf".to_string();
 }
 

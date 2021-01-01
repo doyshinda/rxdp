@@ -67,8 +67,16 @@ impl XDPLoadedObject {
     fn new(obj: XDPObject) -> XDPResult<Self> {
         let obj = obj.object;
         unsafe {
-            let rc = bpf::bpf_object__load(obj);
-            if rc < 0 {
+            let mut prog: *mut bpf::bpf_program = std::ptr::null_mut();
+            prog = bpf::bpf_program__next(prog, obj);
+            while !prog.is_null() {
+                // Workaround for older kernels that fail if `expected_attach_type` is set
+                // to anything other than 0.
+                bpf::bpf_program__set_expected_attach_type(prog, 0);
+                prog = bpf::bpf_program__next(prog, obj);
+            }
+
+            if bpf::bpf_object__load(obj) < 0 {
                 return Err(XDPError::new("Error loading object"));
             }
         }
@@ -83,6 +91,7 @@ impl XDPLoadedObject {
                 let prog_name = utils::cstring_to_str(bpf::bpf_program__name(prog));
                 programs.insert(prog_name.clone(), XDPProgram::new(prog)?);
                 program_names.push(prog_name);
+                bpf::bpf_program__set_expected_attach_type(prog, bpf::BPF_XDP);
                 prog = bpf::bpf_program__next(prog, obj);
             }
         }
