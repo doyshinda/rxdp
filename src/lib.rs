@@ -80,6 +80,7 @@
 //!```
 
 mod error;
+mod map_flags;
 mod map_types;
 mod maps;
 mod object;
@@ -88,8 +89,9 @@ mod result;
 mod utils;
 
 pub use error::XDPError;
+pub use map_flags::MapFlags;
 pub use map_types::MapType;
-pub use maps::{BatchResult, Map, MapFlags};
+pub use maps::{BatchResult, Map};
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

@@ -3,6 +3,7 @@ use libbpf_sys as bpf;
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void};
 
 use crate::error::XDPError;
+use crate::map_flags::MapFlags;
 use crate::map_types::MapType;
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
@@ -18,29 +19,6 @@ const BATCH_OPTS: bpf::bpf_map_batch_opts = bpf::bpf_map_batch_opts {
     elem_flags: 0u64,
     flags: 0u64,
 };
-
-/// Flags that control map `update` behaviour.
-#[repr(u32)]
-pub enum MapFlags {
-    /// Create a new element or update an existing element.
-    BpfAny = bpf::BPF_ANY,
-
-    /// Create a new element only if it did not exist.
-    BpfNoExist = bpf::BPF_NOEXIST,
-
-    /// Update an existing element.
-    BpfExist = bpf::BPF_EXIST,
-}
-
-impl From<MapFlags> for u64 {
-    fn from(mp: MapFlags) -> u64 {
-        match mp {
-            MapFlags::BpfAny => 0u64,
-            MapFlags::BpfNoExist => 1u64,
-            MapFlags::BpfExist => 2u64,
-        }
-    }
-}
 
 /// Struct to hold key/value pair when getting all items from a map.
 #[derive(Debug)]
@@ -74,8 +52,37 @@ pub struct Map<K, V> {
 }
 
 impl<K: Default, V: Default> Map<K, V> {
-    /// Create and load `map_name`. This will fail if the requested key/value sizes
-    /// doesn't match the key/value sizes defined in the underlying eBPF map.
+    /// Create a new map.
+    pub fn create(
+        map_type: MapType,
+        key_size: u32,
+        value_size: u32,
+        max_entries: u32,
+        map_flags: MapFlags,
+    ) -> XDPResult<Map<K, V>> {
+        let map_fd = unsafe {
+            bpf::bpf_create_map(
+                map_type as u32,
+                key_size as i32,
+                value_size as i32,
+                max_entries as i32,
+                map_flags as u32,
+            )
+        };
+
+        let m = Map {
+            map_fd,
+            _key: PhantomData,
+            _val: PhantomData,
+            map_type,
+            max_entries,
+        };
+
+        check_rc(map_fd, m, "Error creating new map")
+    }
+
+    /// Load `map_name`. This will fail if the requested key/value sizes
+    /// don't match the key/value sizes defined in the ELF file.
     pub fn new(xdp: &XDPLoadedObject, map_name: &str) -> XDPResult<Map<K, V>> {
         let name = utils::str_to_cstring(map_name)?;
         let map_fd = unsafe { bpf::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
@@ -148,7 +155,7 @@ impl<K: Default, V: Default> Map<K, V> {
     #[inline]
     /// Update an element in the underlying eBPF map.
     pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
-        self._update(key, value, flags.into())
+        self._update(key, value, flags as u64)
     }
 
     #[cfg(batch)]
@@ -174,7 +181,7 @@ impl<K: Default, V: Default> Map<K, V> {
         let mut count: u32 = num_keys as u32;
         let opts = bpf::bpf_map_batch_opts {
             sz: 24u64,
-            elem_flags: flags.into(),
+            elem_flags: flags as u64,
             flags: 0u64,
         };
         let rc = unsafe {
@@ -304,7 +311,7 @@ impl<K: Default, V: Default> Map<K, V> {
         &self,
         batch_size: u32,
         next_key: Option<u32>,
-        delete: bool
+        delete: bool,
     ) -> XDPResult<BatchResult<K, V>> {
         let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
         let mut vals: Vec<V> = Vec::with_capacity(batch_size as usize);
@@ -378,11 +385,7 @@ impl<K: Default, V: Default> Map<K, V> {
 
     fn get_next_key(&self, prev_key: *const c_void, key: &mut K) -> XDPResult<()> {
         let rc = unsafe {
-            bpf::bpf_map_get_next_key(
-                self.map_fd,
-                prev_key,
-                key as *mut _ as *mut c_void,
-            )
+            bpf::bpf_map_get_next_key(self.map_fd, prev_key, key as *mut _ as *mut c_void)
         };
 
         check_rc(rc, (), "Error getting next key")
@@ -396,7 +399,8 @@ impl<K: Default, V: Default> Map<K, V> {
         let mut result = Vec::with_capacity(self.max_entries as usize);
         let mut more = {
             let first_key: *const i32 = std::ptr::null();
-            self.get_next_key(first_key as *const c_void, &mut key).is_ok()
+            self.get_next_key(first_key as *const c_void, &mut key)
+                .is_ok()
         };
 
         while more {
@@ -405,7 +409,9 @@ impl<K: Default, V: Default> Map<K, V> {
             // values further in the map.
             let maybe_val = self.lookup(&key);
             if self.map_type == MapType::DevMap && maybe_val.is_err() {
-                more = self.get_next_key(&key as *const _ as *const c_void, &mut key).is_ok();
+                more = self
+                    .get_next_key(&key as *const _ as *const c_void, &mut key)
+                    .is_ok();
                 continue;
             }
 
@@ -414,7 +420,9 @@ impl<K: Default, V: Default> Map<K, V> {
                 value: maybe_val?,
             });
 
-            more = self.get_next_key(&key as *const _ as *const c_void, &mut key).is_ok();
+            more = self
+                .get_next_key(&key as *const _ as *const c_void, &mut key)
+                .is_ok();
         }
 
         Ok(result)
@@ -485,7 +493,12 @@ fn is_array(mt: &MapType) -> bool {
 }
 
 #[cfg(batch)]
-fn populate_batch_result<K, V>(n: u32, result: &mut Vec<KeyValue<K, V>>, keys: &mut Vec<K>, vals: &mut Vec<V>) {
+fn populate_batch_result<K, V>(
+    n: u32,
+    result: &mut Vec<KeyValue<K, V>>,
+    keys: &mut Vec<K>,
+    vals: &mut Vec<V>,
+) {
     vals.truncate(n as usize);
     for k in keys.drain(..n as usize).rev() {
         result.push(KeyValue {

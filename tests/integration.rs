@@ -153,6 +153,34 @@ fn test_attach_program_no_interface() {
 }
 
 #[test]
+fn test_create_hash_map() {
+    let m = rxdp::Map::<u32, u32>::create(
+        rxdp::MapType::Hash,
+        4,
+        4,
+        10,
+        rxdp::MapFlags::BpfAny
+    ).unwrap();
+    let key = 100u32;
+    let val = 101u32;
+    test_map_operations(&m, key, val);
+}
+
+#[test]
+fn test_create_array_map() {
+    let m = rxdp::Map::<u32, u32>::create(
+        rxdp::MapType::Array,
+        4,
+        4,
+        10,
+        rxdp::MapFlags::BpfAny
+    ).unwrap();
+    let key = 0u32;
+    let val = 101u32;
+    test_map_operations(&m, key, val);
+}
+
+#[test]
 fn test_lru_hash_map_operations() {
     let obj = loaded_object();
     let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_LRU_HASH).unwrap();
