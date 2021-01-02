@@ -2,45 +2,41 @@ use errno::{set_errno, Errno};
 use libbpf_sys as bpf;
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void};
 
-use crate::error::XDPError;
+use crate::error::{get_errno, reset_errno, XDPError};
 use crate::map_flags::MapFlags;
 use crate::map_types::MapType;
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
 use crate::utils;
 
-#[cfg(batch)]
-use crate::error::{get_errno, reset_errno};
-#[cfg(batch)]
+const BATCH_SUPPORTED: &'static str = "RXDP_BATCH_SUPPORTED";
 const BATCH_SIZE: u32 = 100;
-#[cfg(batch)]
 const BATCH_OPTS: bpf::bpf_map_batch_opts = bpf::bpf_map_batch_opts {
     sz: 24u64,
     elem_flags: 0u64,
     flags: 0u64,
 };
 
-/// Struct to hold key/value pair when getting all items from a map.
+/// Holds key/value pair when getting all items from a map.
 #[derive(Debug)]
 pub struct KeyValue<K, V> {
     pub key: K,
     pub value: V,
 }
 
-/// Struct to hold the result of a batch operation.
+/// The result of a batch operation.
 pub struct BatchResult<K, V> {
     pub items: Vec<KeyValue<K, V>>,
     pub next_key: Option<u32>,
     pub num_items: u32,
 }
 
-#[cfg(batch)]
 struct BatchResultInternal {
     next_key: Option<u32>,
     num_items: u32,
 }
 
-/// Struct that handles interacting with the underlying eBPF map.
+/// Handles interacting with the underlying eBPF map.
 pub struct Map<K, V> {
     map_fd: i32,
     _key: PhantomData<K>,
@@ -49,16 +45,33 @@ pub struct Map<K, V> {
 
     /// The maximum number of entries the map supports
     pub max_entries: u32,
+    batching_support: bool,
 }
 
 impl<K: Default, V: Default> Map<K, V> {
+    /// True if the kernel supports batching calls
+    pub fn batching_supported(&self) -> bool {
+        self.batching_support
+    }
+
     /// Create a new map.
     pub fn create(
         map_type: MapType,
         key_size: u32,
         value_size: u32,
         max_entries: u32,
-        map_flags: MapFlags,
+        map_flags: u32,
+    ) -> XDPResult<Map<K, V>> {
+        Map::<K, V>::_create(map_type, key_size, value_size, max_entries, map_flags, true)
+    }
+
+    pub(crate) fn _create(
+        map_type: MapType,
+        key_size: u32,
+        value_size: u32,
+        max_entries: u32,
+        map_flags: u32,
+        check_batch: bool,
     ) -> XDPResult<Map<K, V>> {
         let map_fd = unsafe {
             bpf::bpf_create_map(
@@ -66,9 +79,14 @@ impl<K: Default, V: Default> Map<K, V> {
                 key_size as i32,
                 value_size as i32,
                 max_entries as i32,
-                map_flags as u32,
+                map_flags,
             )
         };
+
+        let mut batching_support = false;
+        if check_batch {
+            batching_support = batching_supported();
+        }
 
         let m = Map {
             map_fd,
@@ -76,6 +94,7 @@ impl<K: Default, V: Default> Map<K, V> {
             _val: PhantomData,
             map_type,
             max_entries,
+            batching_support,
         };
 
         check_rc(map_fd, m, "Error creating new map")
@@ -136,31 +155,18 @@ impl<K: Default, V: Default> Map<K, V> {
             _val: PhantomData,
             map_type: mtype.into(),
             max_entries,
+            batching_support: batching_supported(),
         })
     }
 
-    fn _update(&self, key: &K, value: &V, flags: u64) -> XDPResult<()> {
-        let rc = unsafe {
-            bpf::bpf_map_update_elem(
-                self.map_fd,
-                key as *const _ as *const c_void,
-                value as *const _ as *const c_void,
-                flags,
-            )
-        };
-
-        check_rc(rc, (), "Error updating elem")
-    }
-
-    #[inline]
     /// Update an element in the underlying eBPF map.
     pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
-        self._update(key, value, flags as u64)
+        update(self.map_fd, key, value, flags as u64)
     }
 
-    #[cfg(batch)]
-    #[inline]
-    /// Update a batch of elements in the underlying eBPF map.
+    /// Update a batch of elements in the underlying eBPF map. If the kernel supports it, this
+    /// will use the `BPF_MAP_UPDATE_BATCH` syscall to update all elements in 1 call. Otherwise,
+    /// it is equavalent to calling `update()` in a loop for every element.
     pub fn update_batch(
         &self,
         keys: &mut Vec<K>,
@@ -178,10 +184,20 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new(&err));
         }
 
+        let flags = flags as u64;
+
+        if !self.batching_support {
+            for i in 0..num_keys {
+                update(self.map_fd, &keys[i], &values[i], flags)?
+            }
+
+            return Ok(num_keys as u32);
+        }
+
         let mut count: u32 = num_keys as u32;
         let opts = bpf::bpf_map_batch_opts {
             sz: 24u64,
-            elem_flags: flags as u64,
+            elem_flags: flags,
             flags: 0u64,
         };
         let rc = unsafe {
@@ -197,25 +213,6 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, count, "Error updating batch of elements")
     }
 
-    #[cfg(not(batch))]
-    #[inline]
-    /// Update a batch of elements in the underlying eBPF map.
-    pub fn update_batch(
-        &self,
-        keys: &mut Vec<K>,
-        values: &mut Vec<V>,
-        flags: MapFlags,
-    ) -> XDPResult<u32> {
-        let num_items = keys.len();
-        let flags = flags as u64;
-        for i in 0..num_items {
-            self._update(&keys[i], &values[i], flags)?
-        }
-
-        Ok(num_items as u32)
-    }
-
-    #[inline]
     /// Delete an element from the underlying eBPF map.
     pub fn delete(&self, key: &K) -> XDPResult<()> {
         // Array map types do not support deletes, do an early return to save a syscall.
@@ -229,7 +226,6 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, (), "Error deleting elem")
     }
 
-    #[inline]
     /// Lookup an element from the underlying eBPF map.
     pub fn lookup(&self, key: &K) -> XDPResult<V> {
         let mut value: V = Default::default();
@@ -244,8 +240,6 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(rc, value, "Error looking up elem")
     }
 
-    #[cfg(batch)]
-    #[inline]
     /// Lookup a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
@@ -264,16 +258,20 @@ impl<K: Default, V: Default> Map<K, V> {
     /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
     /// elements, particularly when the `batch_size` is small. If the number of elements returned
     /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
+    ///
+    /// **NOTE**: This function will return an error if the kernel doesn't support batching
     pub fn lookup_batch(
         &self,
         batch_size: u32,
         next_key: Option<u32>,
     ) -> XDPResult<BatchResult<K, V>> {
+        if !self.batching_support {
+            set_errno(Errno(95));
+            return Err(XDPError::new("Batching not supported"));
+        }
         self.lookup_batch_impl(batch_size, next_key, false)
     }
 
-    #[cfg(batch)]
-    #[inline]
     /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
@@ -292,6 +290,8 @@ impl<K: Default, V: Default> Map<K, V> {
     /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
     /// elements, particularly when the `batch_size` is small. If the number of elements returned
     /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
+    ///
+    /// **NOTE**: This function will return an error if the kernel doesn't support batching
     pub fn lookup_and_delete_batch(
         &self,
         batch_size: u32,
@@ -303,10 +303,14 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new("Delete not supported on this map type"));
         }
 
+        if !self.batching_support {
+            set_errno(Errno(95));
+            return Err(XDPError::new("Batching not supported"));
+        }
+
         self.lookup_batch_impl(batch_size, next_key, true)
     }
 
-    #[cfg(batch)]
     fn lookup_batch_impl(
         &self,
         batch_size: u32,
@@ -329,7 +333,6 @@ impl<K: Default, V: Default> Map<K, V> {
         })
     }
 
-    #[cfg(batch)]
     fn lookup_batch_prealloc(
         &self,
         batch_size: u32,
@@ -428,7 +431,6 @@ impl<K: Default, V: Default> Map<K, V> {
         Ok(result)
     }
 
-    #[cfg(not(batch))]
     #[inline]
     /// Returns all items in the map. Note that for Array type maps, this will always
     /// return `max_entries` number of items.
@@ -436,24 +438,13 @@ impl<K: Default, V: Default> Map<K, V> {
     where
         K: Copy,
     {
-        self._items()
-    }
-
-    #[cfg(batch)]
-    #[inline]
-    /// Returns all items in the map. Note that for Array type maps, this will always
-    /// return `max_entries` number of items.
-    pub fn items(&self) -> XDPResult<Vec<KeyValue<K, V>>>
-    where
-        K: Copy,
-    {
-        if self.map_type == MapType::DevMap || self.max_entries < 50 {
+        if self.map_type == MapType::DevMap || self.max_entries < 50 || !self.batching_support {
             return self._items();
         }
         let mut keys: Vec<K> = Vec::with_capacity(BATCH_SIZE as usize);
         let mut vals: Vec<V> = Vec::with_capacity(BATCH_SIZE as usize);
 
-        let mut result = Vec::with_capacity(1000 as usize);
+        let mut result = Vec::with_capacity(BATCH_SIZE as usize);
         let mut next_key = None;
 
         loop {
@@ -471,6 +462,19 @@ impl<K: Default, V: Default> Map<K, V> {
 
         Ok(result)
     }
+}
+
+fn update<K, V>(map_fd: i32, key: &K, value: &V, flags: u64) -> XDPResult<()> {
+    let rc = unsafe {
+        bpf::bpf_map_update_elem(
+            map_fd,
+            key as *const _ as *const c_void,
+            value as *const _ as *const c_void,
+            flags,
+        )
+    };
+
+    check_rc(rc, (), "Error updating elem")
 }
 
 fn check_rc<T>(rc: i32, ret: T, err_msg: &str) -> XDPResult<T> {
@@ -492,7 +496,6 @@ fn is_array(mt: &MapType) -> bool {
     }
 }
 
-#[cfg(batch)]
 fn populate_batch_result<K, V>(
     n: u32,
     result: &mut Vec<KeyValue<K, V>>,
@@ -505,5 +508,28 @@ fn populate_batch_result<K, V>(
             key: k,
             value: vals.pop().unwrap(),
         })
+    }
+}
+
+fn batching_supported() -> bool {
+    if let Ok(v) = std::env::var(BATCH_SUPPORTED) {
+        match v.as_str() {
+            "0" => return false,
+            _ => return true,
+        }
+    }
+
+    match Map::<u32, u32>::_create(MapType::Hash, 4, 4, 10, 0, false).and_then(|m| {
+        m.update(&0u32, &0u32, MapFlags::BpfAny)
+            .and_then(|_| m.lookup_batch_impl(10, None, false))
+    }) {
+        Err(_) => {
+            std::env::set_var(BATCH_SUPPORTED, "0");
+            false
+        }
+        Ok(_) => {
+            std::env::set_var(BATCH_SUPPORTED, "1");
+            true
+        }
     }
 }

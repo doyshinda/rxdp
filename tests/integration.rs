@@ -159,7 +159,7 @@ fn test_create_hash_map() {
         4,
         4,
         10,
-        rxdp::MapFlags::BpfAny
+        0,
     ).unwrap();
     let key = 100u32;
     let val = 101u32;
@@ -173,7 +173,7 @@ fn test_create_array_map() {
         4,
         4,
         10,
-        rxdp::MapFlags::BpfAny
+        0,
     ).unwrap();
     let key = 0u32;
     let val = 101u32;
@@ -218,11 +218,13 @@ fn test_dev_map_operations() {
     test_map_operations(&m, key, index);
 }
 
-#[cfg(batch)]
 #[test]
 fn test_hash_map_batch_operations() {
     let obj = loaded_object();
     let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
+    if !m.batching_supported() {
+        return;
+    }
     let mut keys = Vec::new();
     let mut vals = Vec::new();
     let batch_size = 10;
@@ -366,12 +368,11 @@ where
     }
 
 
-    if m.map_type != rxdp::MapType::DevMap {
+    if m.map_type != rxdp::MapType::DevMap && m.batching_supported() {
         test_batch_operations(m, key, val, is_array);
     }
 }
 
-#[cfg(batch)]
 fn test_batch_operations<K, V>(m: &rxdp::Map<K, V>, key: K, val: V, is_array: bool)
 where
     K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
@@ -413,16 +414,6 @@ where
     }
 }
 
-#[cfg(not(batch))]
-fn test_batch_operations<K, V>(_m: &rxdp::Map<K, V>, _k: K, _v: V, _i: bool)
-where
-    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
-    V: Default + std::cmp::PartialEq + std::fmt::Debug,
-{
-    ()
-}
-
-#[cfg(batch)]
 fn update_batch<K, V>(m: &rxdp::Map<K, V>, keys: &mut Vec<K>, vals: &mut Vec<V>) -> u32
 where
     K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
@@ -430,17 +421,4 @@ where
 {
     m.update_batch(keys, vals, rxdp::MapFlags::BpfAny).unwrap();
     return keys.len() as u32;
-}
-
-#[cfg(not(batch))]
-fn update_batch<K, V>(m: &rxdp::Map<K, V>, keys: &mut Vec<K>, vals: &mut Vec<V>) -> u32
-where
-    K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
-    V: Default + std::cmp::PartialEq + std::fmt::Debug,
-{
-    let num_items = keys.len();
-    for i in 0..num_items {
-        m.update(&mut keys[i], &mut vals[i], rxdp::MapFlags::BpfAny).unwrap();
-    }
-    num_items as u32
 }
