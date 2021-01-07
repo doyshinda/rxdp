@@ -14,10 +14,14 @@ libbpf-sys = "0.1.0-1"
 errno = "0.2.6"
 libc = "0.2.80"
 
+[features]
+test = []
+
 [dev-dependencies]
 lazy_static = "1.4.0"
 rand = "0.7.3"
 criterion = "0.3"
+rxdp = { path = ".", features = ["test"] }
 
 [profile.dev]
 opt-level = 0  # Controls the --opt-level the compiler builds with
