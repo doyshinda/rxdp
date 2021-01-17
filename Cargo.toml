@@ -1,7 +1,14 @@
 [package]
 name = "rxdp"
-version = "0.1.0"
+version = "0.1.0" # Keep html_root_url in sync
 authors = ["Abe Friesen <abefriesen.af@gmail.com>"]
+license = "MIT"
+readme= "README.md"
+keywords = ["xdp", "ebpf", "linux"]
+repository = "https://github.com/doyshinda/rxdp"
+documentation = "https://docs.rs/rxdp"
+description = "Bindings for interoperating with XDP programs and eBPF maps."
+categories = ["api-bindings"]
 edition = "2018"
 
 [lib]
@@ -21,11 +28,6 @@ test = []
 lazy_static = "1.4.0"
 rand = "0.7.3"
 criterion = "0.3"
-rxdp = { path = ".", features = ["test"] }
-
-[profile.dev]
-opt-level = 0  # Controls the --opt-level the compiler builds with
-debug = true   # Controls whether the compiler passes `-g`
 
 [build-dependencies]
 cc = "1.0"
@@ -33,3 +35,7 @@ cc = "1.0"
 [[bench]]
 name = "rxdp_benchmark"
 harness = false
+
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = []

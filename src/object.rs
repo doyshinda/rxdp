@@ -32,8 +32,8 @@ impl XDPObject {
         }
     }
 
-    /// Loads any previously pinned maps from the fs and/or sets maps to be pinned. Uses the
-    /// default path at `/sys/fs/bpf/` when looking for/pinning maps.
+    /// Loads any previously pinned maps from the fs and/or sets maps to be pinned. Will use `path`
+    /// if provided, else defaults to `/sys/fs/bpf/` when looking for/pinning maps.
     pub fn pinned_maps(&self, maps: &HashSet<String>, path: Option<&str>) -> XDPResult<()> {
         let base_path = path.unwrap_or("/sys/fs/bpf").trim_end_matches('/');
 

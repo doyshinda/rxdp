@@ -1,13 +1,12 @@
 # rxdp
 Rust bindings for working with XDP programs & eBPF maps.
 
-This library has bindings for some of the common, basic operations needed when working with
-XDP programs from user-space. At the time of writing, it supports only a subset of all the
-possibe eBPF map types.
+This library has bindings for some of the common, basic operations needed when working with XDP programs & eBPF maps from user-space. It is built on top of [libbpf-sys](https://github.com/alexforster/libbpf-sys). At the time of writing, it supports only a subset of all the possibe eBPF map types (see tests directory for a good indication of which maps are supported).
 
 
 ## Prerequisites
 * Linux OS
+* libbpf-sys [dependencies](https://github.com/alexforster/libbpf-sys#building)
 
 ## Examples
 ### Create an object from an ELF file
@@ -35,8 +34,7 @@ obj.pinned_maps(pinned_maps).unwrap();
 ```
 
 ### Load the object (programs + maps) into the kernel.
-This will consume the `XDPObject` created above and return
-an `XDPLoadedObject`.
+This will consume the `XDPObject` created above and return an `XDPLoadedObject`.
 ```rust
 let obj = obj.load().unwrap();
 ```
@@ -60,8 +58,7 @@ let mut m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
     Err(e) => panic!("{:?}", e),
 };
 ```
-**NOTE**: the key/value sizes **MUST** match the key/value sizes defined in the eBPF code,
-otherwise creating the map will fail.
+**NOTE**: the key/value sizes **MUST** match the key/value sizes defined in the eBPF code, otherwise creating the map will fail.
 
 ### Perform map operations
 ```rust
@@ -88,3 +85,12 @@ Running benchmarks requires root access, so it's best to run them in a Docker co
 ```sh
 make docker-bench
 ```
+
+## Licensing
+This crate is released under MIT license and has the following third party depedencies:
+|                | Website                                                                        | License                                  | Linkage |
+|----------------|--------------------------------------------------------------------------------|------------------------------------------|---------|
+| **libbpf-sys** | [github.com/alexforster/libbpf-sys](https://github.com/alexforster/libbpf-sys) | `BSD-2-Clause`                           | Static  |
+| **libbpf**     | [github.com/libbpf/libbpf](https://github.com/libbpf/libbpf/)                  | `LGPL-2.1-only OR BSD-2-Clause`          | Static  |
+| **libelf**     | [sourceware.org/elfutils](https://sourceware.org/elfutils/)                    | `LGPL-2.1-or-later OR LGPL-3.0-or-later` | Dynamic |
+| **zlib**       | [zlib.net](https://www.zlib.net/)                                              | `Zlib`                                   | Dynamic |

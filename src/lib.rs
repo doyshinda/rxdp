@@ -3,12 +3,16 @@
 //! Rust bindings for working with XDP programs & eBPF maps.
 //!
 //! This library has bindings for some of the common, basic operations needed when working with
-//! XDP programs from user-space. At the time of writing, it supports only a subset of all the
-//! possibe eBPF map types.
-//!
+//! XDP programs & eBPF maps from user-space. It is built on top of [libbpf-sys][1]. At the time
+//! of writing, it supports only a subset of all the possibe eBPF map types (see tests directory
+//! for a good indication of which maps are supported).
 //!
 //! ## Prerequisites
 //! * Linux OS
+//! * libbpf-sys [dependencies][2]
+//!
+//! [1]: https://github.com/alexforster/libbpf-sys
+//! [2]: https://github.com/alexforster/libbpf-sys#building
 //!
 //! ## Examples
 //! ### Create an object from an ELF file
@@ -31,7 +35,7 @@
 //! once the program is loaded, they will get automatically pinned.
 //! ```ignore
 //! let mut pinned_maps = HashSet::new();
-//! let pin_path = None;
+//! let pin_path = None; // Will default to /sys/fs/bpf
 //! pinned_maps.insert("my_map_name".to_string());
 //! obj.pinned_maps(pinned_maps, pin_path).unwrap();
 //! ```
@@ -43,7 +47,7 @@
 //! let obj = obj.load().unwrap();
 //! ```
 //!
-//! ### Get a reference to an XDP program and attach it to an interface
+//! ### Get a reference to a specific XDP program and attach it to an interface
 //! ```ignore
 //! let dev = "eth0";
 //! let flags = rxdp::AttachFlags::SKB_MODE;
@@ -57,7 +61,7 @@
 //!
 //! ### Get access to an underlying eBPF [`Map`](crate::maps::Map)
 //! ```ignore
-//! let mut m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
+//! let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
 //!     Ok(m) => m,
 //!     Err(e) => panic!("{:?}", e),
 //! };
@@ -78,6 +82,16 @@
 //!     println!("key: {}, value: {}", kv.key, kv.value);
 //! }
 //!```
+//!
+//! ### Batching support (kernel dependent)
+//! If the kernel supports it, you can do batch operations for update/lookups. You can see if
+//! batching is supported:
+//! ```ignore
+//! let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name").unwrap();
+//! println!("batching supported: {}", m.batching_supported());
+//! ```
+
+#![doc(html_root_url = "https://docs.rs/rxdp/0.1.0")]
 
 mod error;
 mod map_flags;
@@ -91,7 +105,7 @@ mod utils;
 pub use error::XDPError;
 pub use map_flags::MapFlags;
 pub use map_types::MapType;
-pub use maps::{BatchResult, Map};
+pub use maps::{BatchResult, Map, KeyValue};
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

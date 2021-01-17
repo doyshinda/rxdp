@@ -7,7 +7,7 @@ use std::{cell::RefCell, os::raw::c_int};
 #[allow(dead_code)]
 pub struct XDPProgram {
     prog: *const libbpf_sys::bpf_program,
-    pub fd: c_int,
+    fd: c_int,
     flags: RefCell<u32>,
 }
 
@@ -25,6 +25,11 @@ bitflags::bitflags! {
 }
 
 impl XDPProgram {
+    /// Returns the file descriptor for this program.
+    pub fn fd(&self) -> i32 {
+        self.fd
+    }
+
     pub(crate) fn new(prog: *mut libbpf_sys::bpf_program) -> XDPResult<XDPProgram> {
         let fd = unsafe { libbpf_sys::bpf_program__fd(prog) };
         if fd < 0 {

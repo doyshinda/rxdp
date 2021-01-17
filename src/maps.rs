@@ -100,22 +100,16 @@ impl<K: Default, V: Default> Map<K, V> {
         check_rc(map_fd, m, "Error creating new map")
     }
 
-    /// Load `map_name`. This will fail if the requested key/value sizes
+    /// Get access to the eBPF map `map_name`. This will fail if the requested key/value sizes
     /// don't match the key/value sizes defined in the ELF file.
     pub fn new(xdp: &XDPLoadedObject, map_name: &str) -> XDPResult<Map<K, V>> {
         let name = utils::str_to_cstring(map_name)?;
-        let map_fd = unsafe { bpf::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr()) };
-
-        Map::new_map_from_fd(xdp, map_fd, map_name)
-    }
-
-    fn new_map_from_fd(xdp: &XDPLoadedObject, map_fd: i32, map_name: &str) -> XDPResult<Map<K, V>> {
-        let name = utils::str_to_cstring(map_name)?;
-        let (map, map_def) = unsafe {
+        let (map_fd, map, map_def) = unsafe {
+            let map_fd = bpf::bpf_object__find_map_fd_by_name(xdp.object, name.as_ptr());
             let map = bpf::bpf_object__find_map_by_name(xdp.object, name.as_ptr());
 
             let map_def = bpf::bpf_map__def(map);
-            (map, map_def)
+            (map_fd, map, map_def)
         };
 
         if map_fd < 0 || map.is_null() || map_def.is_null() {
@@ -246,7 +240,7 @@ impl<K: Default, V: Default> Map<K, V> {
     /// ```ignore
     /// let next_key = None;
     /// loop {
-    ///     let r = self.lookup_batch(10u32, next_key)?;
+    ///     let r = m.lookup_batch(10u32, next_key)?;
     ///     // do something with `r.items`...
     ///
     ///     if r.next_key.is_none() {
@@ -269,6 +263,7 @@ impl<K: Default, V: Default> Map<K, V> {
             set_errno(Errno(95));
             return Err(XDPError::new("Batching not supported"));
         }
+
         self.lookup_batch_impl(batch_size, next_key, false)
     }
 
@@ -278,7 +273,7 @@ impl<K: Default, V: Default> Map<K, V> {
     /// ```ignore
     /// let next_key = None;
     /// loop {
-    ///     let r = self.lookup_and_delete_batch(10u32, next_key)?;
+    ///     let r = m.lookup_and_delete_batch(10u32, next_key)?;
     ///     // do something with `r.items`...
     ///
     ///     if r.next_key.is_none() {
