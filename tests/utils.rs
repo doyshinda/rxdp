@@ -1,12 +1,8 @@
 use lazy_static::lazy_static;
 use libc::if_nametoindex;
-use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use std::{
-    convert::TryInto,
-    ffi::CString,
-    process::Command,
-};
+use rand::{thread_rng, Rng};
+use std::{convert::TryInto, ffi::CString, process::Command};
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
@@ -15,9 +11,7 @@ lazy_static! {
 }
 
 pub fn random_string() -> String {
-    thread_rng().sample_iter(&Alphanumeric)
-                .take(6)
-                .collect()
+    thread_rng().sample_iter(&Alphanumeric).take(6).collect()
 }
 
 pub fn get_test_dir() -> String {
@@ -35,7 +29,7 @@ pub fn loaded_object() -> rxdp::XDPLoadedObject {
 
 #[derive(Debug)]
 pub struct TestDir {
-    pub path: String
+    pub path: String,
 }
 
 impl Drop for TestDir {
@@ -48,12 +42,12 @@ pub fn pin_dir() -> TestDir {
     let folder = random_string();
     let path = format!("{}/{}", *PIN_PATH, folder);
     std::fs::create_dir(&path).unwrap();
-    TestDir {path}
+    TestDir { path }
 }
 
 #[derive(Debug)]
 pub struct TestIface {
-    pub name: String
+    pub name: String,
 }
 
 impl Drop for TestIface {
@@ -82,7 +76,7 @@ pub fn test_iface() -> TestIface {
         .status()
         .expect("failed to create interface");
 
-    TestIface{name}
+    TestIface { name }
 }
 
 pub(crate) fn str_to_cstring(s: &str) -> Result<CString, String> {
@@ -98,17 +92,11 @@ pub(crate) fn str_to_cstring(s: &str) -> Result<CString, String> {
 pub fn lookup_interface_by_name(name: &str) -> Result<i32, String> {
     let index = unsafe { if_nametoindex(str_to_cstring(name)?.as_ptr()) };
     if index == 0 {
-        return Err(format!(
-            "Error finding interface index for {}",
-            name
-        ));
+        return Err(format!("Error finding interface index for {}", name));
     }
 
     match (index as i32).try_into() {
         Ok(i) => Ok(i),
-        Err(e) => Err(format!(
-            "Error converting interface index to 'i32': {}",
-            e
-        )),
+        Err(e) => Err(format!("Error converting interface index to 'i32': {}", e)),
     }
 }

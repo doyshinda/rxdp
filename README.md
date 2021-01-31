@@ -87,7 +87,8 @@ make docker-bench
 ```
 
 ## Licensing
-This crate is released under MIT license and has the following third party depedencies:
+This crate is released under MIT license and has the following third party dependencies:
+
 |                | Website                                                                        | License                                  | Linkage |
 |----------------|--------------------------------------------------------------------------------|------------------------------------------|---------|
 | **libbpf-sys** | [github.com/alexforster/libbpf-sys](https://github.com/alexforster/libbpf-sys) | `BSD-2-Clause`                           | Static  |

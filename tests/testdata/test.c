@@ -50,6 +50,42 @@ struct bpf_map_def SEC("maps") dev_map = {
     .max_entries = 10,
 };
 
+struct bpf_map_def SEC("maps") per_cpu_hash = {
+    .type = BPF_MAP_TYPE_PERCPU_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = 10,
+};
+
+struct bpf_map_def SEC("maps") per_cpu_lru = {
+    .type = BPF_MAP_TYPE_LRU_PERCPU_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = 10,
+};
+
+struct bpf_map_def SEC("maps") per_cpu_array = {
+    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = 10,
+};
+
+struct bpf_map_def SEC("maps") pc_hash_big = {
+    .type = BPF_MAP_TYPE_PERCPU_HASH,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = 10000,
+};
+
+struct bpf_map_def SEC("maps") pc_array_big = {
+    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(__u32),
+    .max_entries = 1000,
+};
+
+
 SEC("xdp_test")
 int rxdp_test(struct xdp_md *ctx)
 {

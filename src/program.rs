@@ -1,6 +1,8 @@
 use crate::error::XDPError;
 use crate::result::XDPResult;
 use crate::utils;
+
+use errno::{set_errno, Errno};
 use std::{cell::RefCell, os::raw::c_int};
 
 /// Convenience wrapper around an XDP program
@@ -47,6 +49,7 @@ impl XDPProgram {
         let if_index = utils::lookup_interface_by_name(interface_name)?;
         let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, self.fd, flags.bits()) };
         if rc < 0 {
+            set_errno(Errno(rc * -1));
             return Err(XDPError::new("Error attaching to interface"));
         }
 

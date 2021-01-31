@@ -42,3 +42,32 @@ pub(crate) fn cstring_to_str(char_ptr: *const c_char) -> String {
         Err(_) => String::new(),
     }
 }
+
+// Returns the number of possible cpus
+pub(crate) fn num_cpus() -> XDPResult<usize> {
+    let contents = match std::fs::read_to_string("/sys/devices/system/cpu/possible") {
+        Ok(c) => c,
+        Err(e) => {
+            let err_msg = format!("Error getting the number of cpus: {:?}", e);
+            return Err(XDPError::new(&err_msg));
+        }
+    };
+
+    if contents.trim() == "0" {
+        return Ok(1);
+    }
+
+    let parts: Vec<&str> = contents.trim().split("-").collect();
+    if parts.len() != 2 {
+        return Err(XDPError::new("Unable to determine number of cpus"));
+    }
+
+    let first = parts[0].parse::<u32>().unwrap_or(0);
+    let second = parts[1].parse::<u32>().unwrap_or(0);
+
+    if second == 0 {
+        return Err(XDPError::new("Unable to determine number of cpus"));
+    }
+
+    Ok((second - first) as usize + 1 as usize)
+}

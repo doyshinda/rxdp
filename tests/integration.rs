@@ -1,9 +1,9 @@
 use rxdp;
-use std::path::Path;
 use std::collections::HashMap;
+use std::path::Path;
 
 mod utils;
-use utils::{test_object, loaded_object};
+use utils::{loaded_object, test_object};
 
 const MAP_LRU_HASH: &'static str = "lru_hash";
 const MAP_HASH: &'static str = "hash";
@@ -57,7 +57,8 @@ fn test_pinned_map_values() {
 
     // Pinned map with obj1 and write a value
     let obj1 = test_object();
-    obj1.pinned_maps(&pinned_maps, Some(&test_dir.path)).unwrap();
+    obj1.pinned_maps(&pinned_maps, Some(&test_dir.path))
+        .unwrap();
     let obj1 = obj1.load().unwrap();
 
     let m1: rxdp::Map<u32, u32> = rxdp::Map::new(&obj1, MAP_LRU_HASH).unwrap();
@@ -67,7 +68,8 @@ fn test_pinned_map_values() {
 
     // Read value from obj2
     let obj2 = test_object();
-    obj2.pinned_maps(&pinned_maps, Some(&test_dir.path)).unwrap();
+    obj2.pinned_maps(&pinned_maps, Some(&test_dir.path))
+        .unwrap();
     let obj2 = obj2.load().unwrap();
 
     let m2: rxdp::Map<u32, u32> = rxdp::Map::new(&obj2, MAP_LRU_HASH).unwrap();
@@ -114,7 +116,8 @@ fn test_get_program_names() {
 #[test]
 fn test_get_program() {
     let obj = loaded_object();
-    obj.get_program(PROG_TEST).expect("Unable to load test program");
+    obj.get_program(PROG_TEST)
+        .expect("Unable to load test program");
 }
 
 #[test]
@@ -123,7 +126,8 @@ fn test_attach_program_to_interface() {
     let prog = obj.get_program(PROG_TEST).unwrap();
 
     let iface = utils::test_iface();
-    prog.attach_to_interface(&iface.name, rxdp::AttachFlags::SKB_MODE).unwrap();
+    prog.attach_to_interface(&iface.name, rxdp::AttachFlags::SKB_MODE)
+        .unwrap();
 }
 
 #[test]
@@ -132,11 +136,9 @@ fn test_attach_program_unsupported_mode() {
     let prog = obj.get_program(PROG_TEST).unwrap();
 
     let iface = utils::test_iface();
-    if let Err(e) = prog.attach_to_interface(&iface.name, rxdp::AttachFlags::HW_MODE) {
-       assert_eq!(e.code(), 2);
-    } else {
-        panic!("Attach for non-supported mode succeeded");
-    }
+    assert!(prog
+        .attach_to_interface(&iface.name, rxdp::AttachFlags::HW_MODE)
+        .is_err());
 }
 
 #[test]
@@ -145,7 +147,7 @@ fn test_attach_program_no_interface() {
     let prog = obj.get_program(PROG_TEST).unwrap();
 
     let iface = utils::random_string();
-    if let Err(e) =  prog.attach_to_interface(&iface, rxdp::AttachFlags::SKB_MODE) {
+    if let Err(e) = prog.attach_to_interface(&iface, rxdp::AttachFlags::SKB_MODE) {
         assert_eq!(e.code(), 19);
     } else {
         panic!("Attach to non-existent interface succeeded");
@@ -154,13 +156,7 @@ fn test_attach_program_no_interface() {
 
 #[test]
 fn test_create_hash_map() {
-    let m = rxdp::Map::<u32, u32>::create(
-        rxdp::MapType::Hash,
-        4,
-        4,
-        10,
-        0,
-    ).unwrap();
+    let m = rxdp::Map::<u32, u32>::create(rxdp::MapType::Hash, 4, 4, 10, 0).unwrap();
     let key = 100u32;
     let val = 101u32;
     test_map_operations(&m, key, val);
@@ -168,13 +164,7 @@ fn test_create_hash_map() {
 
 #[test]
 fn test_create_array_map() {
-    let m = rxdp::Map::<u32, u32>::create(
-        rxdp::MapType::Array,
-        4,
-        4,
-        10,
-        0,
-    ).unwrap();
+    let m = rxdp::Map::<u32, u32>::create(rxdp::MapType::Array, 4, 4, 10, 0).unwrap();
     let key = 0u32;
     let val = 101u32;
     test_map_operations(&m, key, val);
@@ -222,7 +212,7 @@ fn test_dev_map_operations() {
 fn test_hash_map_batch_operations() {
     let obj = loaded_object();
     let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
-    if !m.batching_supported() {
+    if !*rxdp::BATCHING_SUPPORTED {
         return;
     }
     let mut keys = Vec::new();
@@ -234,7 +224,9 @@ fn test_hash_map_batch_operations() {
         vals.push((i + 100) as u32);
     }
 
-    let num_added = m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+    let num_added = m
+        .update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny)
+        .unwrap();
     assert_eq!(num_added, total);
 
     let mut received = 0;
@@ -318,13 +310,11 @@ fn test_items(map_name: &str) {
     }
 }
 
-
 fn test_map_operations<K, V>(m: &rxdp::Map<K, V>, key: K, val: V)
 where
     K: Default + Copy + std::cmp::PartialEq + std::fmt::Debug,
     V: Default + std::cmp::PartialEq + std::fmt::Debug,
 {
-
     let is_array = match m.map_type {
         rxdp::MapType::Array
         | rxdp::MapType::PerCPUArray
@@ -344,7 +334,7 @@ where
         assert_eq!(num_items, m.max_entries as usize);
     } else {
         // No items in map
-        assert_eq!(num_items, 0); 
+        assert_eq!(num_items, 0);
     }
 
     m.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
@@ -367,8 +357,7 @@ where
         assert!(del_resp.is_err());
     }
 
-
-    if m.map_type != rxdp::MapType::DevMap && m.batching_supported() {
+    if m.map_type != rxdp::MapType::DevMap && *rxdp::BATCHING_SUPPORTED {
         test_batch_operations(m, key, val, is_array);
     }
 }
@@ -382,7 +371,8 @@ where
     let mut vals = Vec::new();
     keys.push(key);
     vals.push(val);
-    m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny).unwrap();
+    m.update_batch(&mut keys, &mut vals, rxdp::MapFlags::BpfAny)
+        .unwrap();
 
     let mut received = 0;
     let mut next_key = None;

@@ -92,20 +92,26 @@
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/rxdp/0.1.0")]
+mod map_common;
 
 mod error;
+mod map;
+mod map_batch;
 mod map_flags;
 mod map_types;
-mod maps;
 mod object;
+mod percpu_map;
 mod program;
 mod result;
 mod utils;
 
 pub use error::XDPError;
+pub use map::Map;
+pub use map_batch::{BatchResult, BATCHING_SUPPORTED};
+pub use map_common::KeyValue;
 pub use map_flags::MapFlags;
 pub use map_types::MapType;
-pub use maps::{BatchResult, Map, KeyValue};
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
+pub use percpu_map::{ByteAligned, PerCpuMap, NUM_CPUS};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

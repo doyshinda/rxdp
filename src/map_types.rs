@@ -69,6 +69,29 @@ impl From<u32> for MapType {
     }
 }
 
+impl MapType {
+    pub(crate) fn is_per_cpu(&self) -> bool {
+        match *self {
+            MapType::PerCPUArray
+            | MapType::PerCPUHash
+            | MapType::PerCPUCgroupStorage
+            | MapType::LRUPerCPUHash => true,
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_array(&self) -> bool {
+        match *self {
+            MapType::Array
+            | MapType::PerCPUArray
+            | MapType::ArrayOfMaps
+            | MapType::ProgArray
+            | MapType::PerfEventArray => true,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

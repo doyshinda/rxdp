@@ -1,6 +1,7 @@
 use libbpf_sys as bpf;
 
 /// Flags that control map `update` behaviour.
+#[derive(Copy, Clone)]
 #[repr(u32)]
 pub enum MapFlags {
     /// Create a new element or update an existing element.

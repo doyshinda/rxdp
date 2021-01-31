@@ -1,6 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
 use rxdp;
+use rxdp::ByteAligned;
+use std::convert::TryInto;
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
@@ -19,6 +21,29 @@ fn test_object() -> rxdp::XDPObject {
 
 fn loaded_object() -> rxdp::XDPLoadedObject {
     test_object().load().unwrap()
+}
+
+pub fn benchmark_per_cpu_hash_map(c: &mut Criterion) {
+    let obj = loaded_object();
+    let m1: rxdp::PerCpuMap<u32, u32> = rxdp::PerCpuMap::new(&obj, "per_cpu_hash").unwrap();
+    let key = 100u32;
+    let val = 101u32;
+
+    let delete = |m: &rxdp::PerCpuMap<u32, u32>| {
+        let key = 100u32;
+        let val = 0u32;
+        m.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
+        m.delete(&key).unwrap();
+    };
+
+    c.bench_function("per_cpu_update_small", |b| {
+        b.iter(|| black_box(m1.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap()))
+    });
+    m1.update(&100u32, &101u32, rxdp::MapFlags::BpfAny).unwrap();
+    c.bench_function("per_cpu_lookup", |b| {
+        b.iter(|| black_box(m1.lookup(&100u32).unwrap()))
+    });
+    c.bench_function("per_cpu_delete", |b| b.iter(|| black_box(delete(&m1))));
 }
 
 pub fn benchmark_hash_map(c: &mut Criterion) {
@@ -64,11 +89,14 @@ pub fn benchmark_hash_map(c: &mut Criterion) {
     c.bench_function("update_large", |b| {
         b.iter(|| black_box(update(&mut keys2, &mut vals2, &mut m2)))
     });
+    m1.update(&100u32, &101u32, rxdp::MapFlags::BpfAny).unwrap();
     c.bench_function("items_small", |b| b.iter(|| black_box(items(&m1))));
     c.bench_function("items_large", |b| b.iter(|| black_box(items(&m2))));
-    c.bench_function("lookup", |b| b.iter(|| black_box(m1.lookup(&100u32).unwrap())));
+    c.bench_function("lookup", |b| {
+        b.iter(|| black_box(m1.lookup(&100u32).unwrap()))
+    });
     c.bench_function("delete", |b| b.iter(|| black_box(delete(&mut m2))));
 }
 
-criterion_group!(benches, benchmark_hash_map);
+criterion_group!(benches, benchmark_hash_map, benchmark_per_cpu_hash_map);
 criterion_main!(benches);
