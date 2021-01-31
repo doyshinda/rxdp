@@ -134,7 +134,7 @@ mod utils;
 
 pub use error::XDPError;
 pub use map::Map;
-pub use map_batch::{BatchResult, is_batching_supported};
+pub use map_batch::{is_batching_supported, BatchResult};
 pub use map_common::KeyValue;
 pub use map_flags::MapFlags;
 pub use map_types::MapType;
