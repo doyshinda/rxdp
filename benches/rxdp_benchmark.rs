@@ -1,8 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
 use rxdp;
-use rxdp::ByteAligned;
-use std::convert::TryInto;
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
