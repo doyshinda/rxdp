@@ -44,7 +44,7 @@ impl<K: Default, V: Default> Map<K, V> {
         let map_fd = mc::create_map(map_type, key_size, value_size, max_entries, map_flags);
 
         if check_batch {
-            let _ = *BATCHING_SUPPORTED;
+            let _ = is_batching_supported();
         }
 
         let m = Map {
@@ -117,7 +117,7 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new(&err));
         }
 
-        if !*BATCHING_SUPPORTED {
+        if !is_batching_supported() {
             for i in 0..num_keys {
                 self.update(&keys[i], &values[i], flags)?
             }
@@ -155,7 +155,7 @@ impl<K: Default, V: Default> Map<K, V> {
     }
 
     /// Lookup a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
     /// ```ignore
     /// let next_key = None;
@@ -179,7 +179,7 @@ impl<K: Default, V: Default> Map<K, V> {
         batch_size: u32,
         next_key: Option<u32>,
     ) -> XDPResult<BatchResult<K, V>> {
-        if !*BATCHING_SUPPORTED {
+        if !is_batching_supported() {
             set_errno(Errno(95));
             return Err(XDPError::new("Batching not supported"));
         }
@@ -188,7 +188,7 @@ impl<K: Default, V: Default> Map<K, V> {
     }
 
     /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
     /// ```ignore
     /// let next_key = None;
@@ -218,7 +218,7 @@ impl<K: Default, V: Default> Map<K, V> {
             return Err(XDPError::new("Delete not supported on this map type"));
         }
 
-        if !*BATCHING_SUPPORTED {
+        if !is_batching_supported() {
             set_errno(Errno(95));
             return Err(XDPError::new("Batching not supported"));
         }
@@ -292,7 +292,7 @@ impl<K: Default, V: Default> Map<K, V> {
     where
         K: Copy,
     {
-        if self.map_type == MapType::DevMap || self.max_entries < 50 || !*BATCHING_SUPPORTED {
+        if self.map_type == MapType::DevMap || self.max_entries < 50 || !is_batching_supported() {
             return self._items();
         }
         let mut keys: Vec<K> = Vec::with_capacity(BATCH_SIZE as usize);

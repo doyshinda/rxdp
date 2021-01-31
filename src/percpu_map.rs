@@ -12,7 +12,7 @@ use crate::utils;
 use crate::{KeyValue, MapFlags, MapType};
 
 lazy_static! {
-    pub static ref NUM_CPUS: usize = utils::num_cpus().unwrap();
+    static ref NUM_CPUS: usize = utils::num_cpus().unwrap();
 }
 
 /// Handles interacting with the underlying per-cpu eBPF map.
@@ -135,7 +135,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
             return Err(XDPError::new(&err));
         }
 
-        if self.map_type.is_array() || !*BATCHING_SUPPORTED {
+        if self.map_type.is_array() || !is_batching_supported() {
             for i in 0..num_keys {
                 self.update(&keys[i], &values[i], flags)?
             }
@@ -169,7 +169,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
     }
 
     /// Lookup a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
     /// ```ignore
     /// let next_key = None;
@@ -198,7 +198,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
     }
 
     /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::maps::BatchResult) that includes the next key to pass in to
+    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
     /// ```ignore
     /// let next_key = None;
@@ -238,7 +238,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
             return Err(XDPError::new("Delete not supported on this map type"));
         }
 
-        if !*BATCHING_SUPPORTED {
+        if !is_batching_supported() {
             set_errno(Errno(95));
             return Err(XDPError::new("Batching not supported"));
         }
@@ -300,7 +300,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
     where
         K: Copy,
     {
-        if self.map_type.is_array() || self.max_entries < 50 || !*BATCHING_SUPPORTED {
+        if self.map_type.is_array() || self.max_entries < 50 || !is_batching_supported() {
             return self._items();
         }
         let mut keys: Vec<K> = Vec::with_capacity(BATCH_SIZE as usize);
@@ -363,9 +363,25 @@ fn align(v: u32) -> usize {
     (((v + 7) / 8) * 8) as usize
 }
 
+/// Number of possible CPUs (not online CPUs).
+pub fn num_cpus() -> usize {
+    *NUM_CPUS
+}
+
+/// Trait used to convert types to/from 8 byte aligned `Vec<u8>` (required by per-cpu eBPF maps).
 pub trait ByteAligned: Default + Copy + std::fmt::Debug {
+    /// Convert a type to a Vec<u8>, padded to the next closest 8 byte alignment:
+    /// ```
+    /// use rxdp::ByteAligned;
+    /// assert_eq!(101u32.align(), vec![101, 0, 0, 0, 0, 0, 0, 0]);
+    /// ```
     fn align(self) -> Vec<u8>;
 
+    /// Convert a 8 byte aligned `Vec<u8>` to a type:
+    /// ```
+    /// use rxdp::ByteAligned;
+    /// assert_eq!(101u8, u8::from_aligned(&vec![101, 0, 0, 0, 0, 0, 0, 0]))
+    /// ```
     fn from_aligned(chunk: &[u8]) -> Self;
 }
 

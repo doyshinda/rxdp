@@ -212,7 +212,7 @@ fn test_dev_map_operations() {
 fn test_hash_map_batch_operations() {
     let obj = loaded_object();
     let m: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, MAP_HASH).unwrap();
-    if !*rxdp::BATCHING_SUPPORTED {
+    if !rxdp::is_batching_supported() {
         return;
     }
     let mut keys = Vec::new();
@@ -357,7 +357,7 @@ where
         assert!(del_resp.is_err());
     }
 
-    if m.map_type != rxdp::MapType::DevMap && *rxdp::BATCHING_SUPPORTED {
+    if m.map_type != rxdp::MapType::DevMap && rxdp::is_batching_supported() {
         test_batch_operations(m, key, val, is_array);
     }
 }

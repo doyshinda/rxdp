@@ -37,7 +37,7 @@ fn test_pinned_per_cpu_map_values() {
     let m2: rxdp::PerCpuMap<u32, u32> = rxdp::PerCpuMap::new(&obj2, MAP_PERCPU_HASH).unwrap();
     let got = m2.lookup(&key).unwrap();
 
-    let expected = vec![val; *rxdp::NUM_CPUS];
+    let expected = vec![val; rxdp::num_cpus()];
     assert_eq!(got, expected);
 }
 
@@ -112,7 +112,7 @@ fn test_items_per_cpu_big_array_map() {
 
 #[test]
 fn test_per_cpu_hash_map_batch_operations() {
-    if !*rxdp::BATCHING_SUPPORTED {
+    if !rxdp::is_batching_supported() {
         return;
     }
     let obj = loaded_object();
@@ -137,7 +137,7 @@ fn test_per_cpu_hash_map_batch_operations() {
         let r = m.lookup_batch(batch_size, next_key).unwrap();
         received += r.num_items;
         for kv in r.items {
-            assert_eq!(kv.value.len(), *rxdp::NUM_CPUS);
+            assert_eq!(kv.value.len(), rxdp::num_cpus());
             assert_eq!(kv.key + 100, kv.value[0]);
         }
         next_key = r.next_key;
@@ -151,7 +151,7 @@ fn test_per_cpu_hash_map_batch_operations() {
         let r = m.lookup_and_delete_batch(batch_size, next_key).unwrap();
         received += r.num_items;
         for kv in r.items {
-            assert_eq!(kv.value.len(), *rxdp::NUM_CPUS);
+            assert_eq!(kv.value.len(), rxdp::num_cpus());
             assert_eq!(kv.key + 100, kv.value[0]);
         }
         next_key = r.next_key;
@@ -183,7 +183,7 @@ fn test_items(map_name: &str) {
         let mut verify = HashMap::new();
 
         for kv in items {
-            assert_eq!(kv.value.len(), *rxdp::NUM_CPUS);
+            assert_eq!(kv.value.len(), rxdp::num_cpus());
             assert_eq!(kv.key + 100, kv.value[0]);
             verify.insert(kv.key, kv.value[0]);
         }
@@ -224,12 +224,12 @@ where
 
     m.update(&key, &val, rxdp::MapFlags::BpfAny).unwrap();
     let got = m.lookup(&key).unwrap();
-    assert_eq!(vec![val; *rxdp::NUM_CPUS], got);
+    assert_eq!(vec![val; rxdp::num_cpus()], got);
 
     if !is_array {
         for kv in m.items().unwrap() {
             assert_eq!(kv.key, key);
-            assert_eq!(kv.value.len(), *rxdp::NUM_CPUS);
+            assert_eq!(kv.value.len(), rxdp::num_cpus());
             assert_eq!(kv.value[0], val);
         }
     }
@@ -243,7 +243,7 @@ where
         assert!(del_resp.is_err());
     }
 
-    if !is_array && *rxdp::BATCHING_SUPPORTED {
+    if !is_array && rxdp::is_batching_supported() {
         test_batch_operations(m, key, val, is_array);
     }
 }
@@ -281,7 +281,7 @@ where
         while received < expected {
             let r = m.lookup_and_delete_batch(10u32, next_key).unwrap();
             for kv in r.items {
-                assert_eq!(kv.value.len(), *rxdp::NUM_CPUS);
+                assert_eq!(kv.value.len(), rxdp::num_cpus());
             }
             received += r.num_items;
             next_key = r.next_key;

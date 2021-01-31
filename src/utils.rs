@@ -62,12 +62,12 @@ pub(crate) fn num_cpus() -> XDPResult<usize> {
         return Err(XDPError::new("Unable to determine number of cpus"));
     }
 
-    let first = parts[0].parse::<u32>().unwrap_or(0);
-    let second = parts[1].parse::<u32>().unwrap_or(0);
+    let lower = parts[0].parse::<u32>().unwrap_or(0);
+    let upper = parts[1].parse::<u32>().unwrap_or(0);
 
-    if second == 0 {
+    if upper == 0 {
         return Err(XDPError::new("Unable to determine number of cpus"));
     }
 
-    Ok((second - first) as usize + 1 as usize)
+    Ok((upper - lower) as usize + 1 as usize)
 }

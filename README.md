@@ -53,7 +53,7 @@ match prog.attach_to_interface(dev, flags) {
 
 ### Get access to an underlying eBPF `Map`
 ```rust
-let mut m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
+let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
     Ok(m) => m,
     Err(e) => panic!("{:?}", e),
 };
@@ -71,6 +71,41 @@ assert_eq!(value, got);
 // iterate through all items
 for kv in m.items().unwrap() {
     println!("key: {}, value: {}", kv.key, kv.value);
+}
+```
+
+### For per-cpu maps, use `PerCpuMap`
+```rust
+let m: rxdp::Map<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap();
+```
+**NOTE**: the key size **MUST** match the key size defined in the eBPF code, otherwise creating the map will fail.
+
+### Per CPU map operations
+Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
+```rust
+let key = 0u32;
+let value = 1000u64;
+m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
+let got = m.lookup(&key).unwrap();
+assert_eq!(got, vec![value; rxdp::num_cpus()]);
+
+// iterate through all items
+for kv in m.items().unwrap() {
+    println!("key: {}", kv.key);
+    for v in kv.value {
+        println!("value: {}", v);
+    }
+}
+```
+
+### Batching support (kernel dependent)
+If the kernel supports it, you can do batch operations for update/lookups:
+```rust
+if rxdp::is_batching_supported() {
+    let mut next_key = None;
+    let r = m.lookup_batch(10u32, next_key).unwrap();
+    // do something with r.items...
+    next_key = r.next_key;
 }
 ```
 

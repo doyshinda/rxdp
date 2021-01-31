@@ -83,12 +83,39 @@
 //! }
 //!```
 //!
-//! ### Batching support (kernel dependent)
-//! If the kernel supports it, you can do batch operations for update/lookups. You can see if
-//! batching is supported:
+//! ### For per-cpu maps, use [`PerCpuMap`](crate::PerCpumap)
 //! ```ignore
-//! let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name").unwrap();
-//! println!("batching supported: {}", m.batching_supported());
+//! let m: rxdp::PerCpuMap<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap();
+//! ```
+//! **NOTE**: the key size **MUST** match the key size defined in the eBPF code, otherwise creating the map will fail.
+
+//! ### Per CPU map operations
+//! Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
+//! ```ignore
+//! let key = 0u32;
+//! let value = 1000u64;
+//! m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
+//! let got = m.lookup(&key).unwrap();
+//! assert_eq!(got, vec![value; rxdp::num_cpus()]);
+
+//! // iterate through all items
+//! for kv in m.items().unwrap() {
+//!     println!("key: {}", kv.key);
+//!     for v in kv.value {
+//!         println!("value: {}", v);
+//!     }
+//! }
+//! ```
+//!
+//! ### Batching support (kernel dependent)
+//! If the kernel supports it, you can do batch operations for update/lookups:
+//! ```ignore
+//! if rxdp::is_batching_supported() {
+//!     let mut next_key = None;
+//!     let r = m.lookup_batch(10u32, next_key).unwrap();
+//!     // do something with r.items...
+//!     next_key = r.next_key;
+//! }
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/rxdp/0.1.0")]
@@ -107,11 +134,11 @@ mod utils;
 
 pub use error::XDPError;
 pub use map::Map;
-pub use map_batch::{BatchResult, BATCHING_SUPPORTED};
+pub use map_batch::{BatchResult, is_batching_supported};
 pub use map_common::KeyValue;
 pub use map_flags::MapFlags;
 pub use map_types::MapType;
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
-pub use percpu_map::{ByteAligned, PerCpuMap, NUM_CPUS};
+pub use percpu_map::{num_cpus, ByteAligned, PerCpuMap};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;
