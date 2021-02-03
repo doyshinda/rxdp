@@ -3,27 +3,25 @@ use lazy_static::lazy_static;
 use libbpf_sys as bpf;
 use std::{convert::TryInto, marker::PhantomData, mem::size_of, os::raw::c_void};
 
-use crate::error::{get_errno, reset_errno, XDPError};
 use crate::map_batch::*;
 use crate::map_common as mc;
+use crate::map_common::{MapLike, MapValue};
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
-use crate::utils;
-use crate::{KeyValue, MapFlags, MapType};
+// use crate::utils;
+use crate::{KeyValue, MapFlags, MapType, XDPError};
 
 lazy_static! {
-    static ref NUM_CPUS: usize = utils::num_cpus().unwrap();
+    static ref NUM_CPUS: usize = crate::utils::num_cpus().unwrap();
 }
 
-/// Handles interacting with the underlying per-cpu eBPF map.
+/// Used for working with per-cpu eBPF maps.
 pub struct PerCpuMap<K, V> {
     map_fd: i32,
     _key: PhantomData<K>,
     _val: PhantomData<V>,
-    pub map_type: MapType,
-
-    /// The maximum number of entries the map supports
-    pub max_entries: u32,
+    map_type: MapType,
+    max_entries: u32,
     value_size: usize,
 }
 
@@ -58,7 +56,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
     /// Get access to the eBPF map `map_name`. This will fail if the requested key size
     /// doesn't match the key size defined in the ELF file.
     pub fn new(xdp: &XDPLoadedObject, map_name: &str) -> XDPResult<PerCpuMap<K, V>> {
-        let (map_fd, _, mtype, max_entries) = PerCpuMap::<K, V>::validate_map(xdp, map_name)?;
+        let (map_fd, _, mtype, max_entries) = mc::validate_map::<K>(xdp, map_name)?;
 
         let map_type: MapType = mtype.into();
         if !map_type.is_per_cpu() {
@@ -75,9 +73,26 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
             value_size: align(size_of::<V>() as u32),
         })
     }
+}
 
-    /// Update an element in the underlying eBPF map.
-    pub fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
+impl<K: Default + Copy, V: ByteAligned> MapLike<K, V> for PerCpuMap<K, V> {
+    fn update_batching_not_supported(&self) -> bool {
+        self.map_type.is_array() || !is_batching_supported()
+    }
+
+    fn map_fd(&self) -> i32 {
+        self.map_fd
+    }
+
+    fn map_type(&self) -> MapType {
+        self.map_type
+    }
+
+    fn max_entries(&self) -> u32 {
+        self.max_entries
+    }
+
+    fn update(&self, key: &K, value: &V, flags: MapFlags) -> XDPResult<()> {
         let mut values: Vec<u8> = Vec::with_capacity(*NUM_CPUS);
         for _ in 0..*NUM_CPUS {
             values.extend_from_slice(value.align().as_slice());
@@ -91,8 +106,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         )
     }
 
-    /// Lookup an element from the underlying eBPF map.
-    pub fn lookup(&self, key: &K) -> XDPResult<Vec<V>> {
+    fn lookup(&self, key: &K) -> XDPResult<MapValue<V>> {
         let s: usize = *NUM_CPUS * self.value_size;
         let mut value: Vec<u8> = Vec::with_capacity(s);
         value.resize_with(s, Default::default);
@@ -111,46 +125,17 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
             }
         }
 
-        return mc::check_rc(rc, r, "Error looking up elem");
+        return mc::check_rc(rc, MapValue::Multi(r), "Error looking up elem");
     }
 
-    /// Update a batch of elements in the underlying eBPF map. If the kernel supports it, this
-    /// will use the `BPF_MAP_UPDATE_BATCH` syscall to update all elements in 1 call. Otherwise,
-    /// it is equivalent to calling `update()` in a loop for every element.
-    /// **NOTE**: PerCPUArray does not support batching, so will fall back to looping.
-    pub fn update_batch(
+    fn update_batch_impl(
         &self,
         keys: &mut Vec<K>,
         values: &mut Vec<V>,
-        flags: MapFlags,
-    ) -> XDPResult<u32> {
-        let num_keys = keys.len();
-        let num_vals = values.len();
-        if num_keys != num_vals {
-            set_errno(Errno(22));
-            let err = format!(
-                "Num keys must match num values. Got {} keys, {} values",
-                num_keys, num_vals
-            );
-            return Err(XDPError::new(&err));
-        }
-
-        if self.map_type.is_array() || !is_batching_supported() {
-            for i in 0..num_keys {
-                self.update(&keys[i], &values[i], flags)?
-            }
-
-            return Ok(num_keys as u32);
-        }
-
-        let mut count: u32 = num_keys as u32;
-        let opts = bpf::bpf_map_batch_opts {
-            sz: 24u64,
-            elem_flags: flags as u64,
-            flags: 0u64,
-        };
-
-        let mut per_cpu_values: Vec<u8> = Vec::with_capacity(*NUM_CPUS * num_vals);
+        opts: &bpf::bpf_map_batch_opts,
+    ) -> (i32, u32) {
+        let mut count: u32 = keys.len() as u32;
+        let mut per_cpu_values: Vec<u8> = Vec::with_capacity(*NUM_CPUS * values.len());
         for v in values {
             for _ in 0..*NUM_CPUS {
                 per_cpu_values.extend_from_slice(v.align().as_slice());
@@ -165,65 +150,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
             &opts,
         );
 
-        mc::check_rc(rc, count, "Error updating batch of elements")
-    }
-
-    /// Lookup a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
-    /// continue looking up elements:
-    /// ```ignore
-    /// let next_key = None;
-    /// loop {
-    ///     let r = m.lookup_batch(10u32, next_key)?;
-    ///     // do something with `r.items`...
-    ///
-    ///     if r.next_key.is_none() {
-    ///         break;
-    ///     }
-    ///     next_key = r.next_key;
-    /// }
-    /// ```
-    /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
-    /// elements, particularly when the `batch_size` is small. If the number of elements returned
-    /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
-    ///
-    /// **NOTE**: This function will return an error if the kernel doesn't support batching or the
-    ///           map type is PerCPUArray.
-    pub fn lookup_batch(
-        &self,
-        batch_size: u32,
-        next_key: Option<u32>,
-    ) -> XDPResult<BatchResult<K, Vec<V>>> {
-        self.lookup_batch_impl(batch_size, next_key, false)
-    }
-
-    /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
-    /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
-    /// continue looking up elements:
-    /// ```ignore
-    /// let next_key = None;
-    /// loop {
-    ///     let r = m.lookup_and_delete_batch(10u32, next_key)?;
-    ///     // do something with `r.items`...
-    ///
-    ///     if r.next_key.is_none() {
-    ///         break;
-    ///     }
-    ///     next_key = r.next_key;
-    /// }
-    /// ```
-    /// **NOTE**: By design of the bpf kernel code, this may return anywhere from 0 - `batch_size`
-    /// elements, particularly when the `batch_size` is small. If the number of elements returned
-    /// is frequently less than the requested `batch_size`, increasing the `batch_size` will help.
-    ///
-    /// **NOTE**: This function will return an error if the kernel doesn't support batching or the
-    ///           map type is PerCPUArray.
-    pub fn lookup_and_delete_batch(
-        &self,
-        batch_size: u32,
-        next_key: Option<u32>,
-    ) -> XDPResult<BatchResult<K, Vec<V>>> {
-        self.lookup_batch_impl(batch_size, next_key, true)
+        (rc, count)
     }
 
     fn lookup_batch_impl(
@@ -231,18 +158,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         batch_size: u32,
         next_key: Option<u32>,
         delete: bool,
-    ) -> XDPResult<BatchResult<K, Vec<V>>> {
-        // Array map types do not support deletes, do an early return to save a syscall.
-        if self.map_type.is_array() && delete {
-            set_errno(Errno(22));
-            return Err(XDPError::new("Delete not supported on this map type"));
-        }
-
-        if !is_batching_supported() {
-            set_errno(Errno(95));
-            return Err(XDPError::new("Batching not supported"));
-        }
-
+    ) -> XDPResult<BatchResult<K, MapValue<V>>> {
         let mut keys: Vec<K> = Vec::with_capacity(batch_size as usize);
 
         let vals_size = batch_size as usize * *NUM_CPUS * self.value_size;
@@ -250,7 +166,14 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         keys.resize_with(batch_size as usize, Default::default);
         vals.resize_with(vals_size, Default::default);
 
-        let r = self.lookup_batch_prealloc(batch_size, next_key, &mut keys, &mut vals, delete)?;
+        let r = mc::lookup_batch_prealloc(
+            self.map_fd,
+            batch_size,
+            next_key,
+            &mut keys,
+            &mut vals,
+            delete,
+        )?;
         let mut result = Vec::with_capacity(r.num_items as usize);
         populate_batch_result(
             r.num_items,
@@ -267,10 +190,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         })
     }
 
-    fn _items(&self) -> XDPResult<Vec<KeyValue<K, Vec<V>>>>
-    where
-        K: Copy,
-    {
+    fn _items(&self) -> XDPResult<Vec<KeyValue<K, MapValue<V>>>> {
         let mut key: K = Default::default();
         let mut result = Vec::with_capacity(self.max_entries as usize);
         let mut more = {
@@ -293,13 +213,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         Ok(result)
     }
 
-    #[inline]
-    /// Returns all items in the map. Note that for Array type maps, this will always
-    /// return `max_entries` number of items.
-    pub fn items(&self) -> XDPResult<Vec<KeyValue<K, Vec<V>>>>
-    where
-        K: Copy,
-    {
+    fn items(&self) -> XDPResult<Vec<KeyValue<K, MapValue<V>>>> {
         if self.map_type.is_array() || self.max_entries < 50 || !is_batching_supported() {
             return self._items();
         }
@@ -314,8 +228,15 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         loop {
             keys.resize_with(BATCH_SIZE as usize, Default::default);
             vals.resize_with(vals_size, Default::default);
-            let r =
-                self.lookup_batch_prealloc(BATCH_SIZE, next_key, &mut keys, &mut vals, false)?;
+
+            let r = mc::lookup_batch_prealloc(
+                self.map_fd,
+                BATCH_SIZE,
+                next_key,
+                &mut keys,
+                &mut vals,
+                false,
+            )?;
             populate_batch_result(
                 r.num_items,
                 &mut result,
@@ -336,7 +257,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
 
 fn populate_batch_result<K, V: ByteAligned>(
     n: u32,
-    result: &mut Vec<KeyValue<K, Vec<V>>>,
+    result: &mut Vec<KeyValue<K, MapValue<V>>>,
     keys: &mut Vec<K>,
     vals: &mut Vec<u8>,
     value_size: usize,
@@ -355,7 +276,10 @@ fn populate_batch_result<K, V: ByteAligned>(
             }
         }
 
-        result.push(KeyValue { key: k, value: r })
+        result.push(KeyValue {
+            key: k,
+            value: MapValue::Multi(r),
+        })
     }
 }
 
@@ -369,7 +293,7 @@ pub fn num_cpus() -> usize {
 }
 
 /// Trait used to convert types to/from 8 byte aligned `Vec<u8>` (required by per-cpu eBPF maps).
-pub trait ByteAligned: Default + Copy + std::fmt::Debug {
+pub trait ByteAligned: Default + Copy {
     /// Convert a type to a Vec<u8>, padded to the next closest 8 byte alignment:
     /// ```
     /// use rxdp::ByteAligned;
@@ -398,8 +322,6 @@ macro_rules! impl_num_byte_aligned {
         }
     };
 }
-
-impl_map_common!(PerCpuMap);
 
 impl_num_byte_aligned!(u8, u64);
 impl_num_byte_aligned!(u16, u64);

@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use libbpf_sys as bpf;
 
-use crate::{KeyValue, Map, MapFlags, MapType};
+use crate::{KeyValue, Map, MapFlags, MapLike, MapType};
 
 const RXDP_BATCH_ENV: &'static str = "rxdp_batching_supported";
 pub(crate) const BATCH_SIZE: u32 = 100;

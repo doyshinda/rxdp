@@ -61,6 +61,8 @@
 //!
 //! ### Get access to an underlying eBPF [`Map`](crate::maps::Map)
 //! ```ignore
+//! use rxdp::MapLike;
+//!
 //! let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
 //!     Ok(m) => m,
 //!     Err(e) => panic!("{:?}", e),
@@ -75,11 +77,11 @@
 //! let value = 1000u64;
 //! m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
 //! let got = m.lookup(&key).unwrap();
-//! assert_eq!(value, got);
+//! assert_eq!(value, got.into_single());
 //!
 //! // iterate through all items
 //! for kv in m.items().unwrap() {
-//!     println!("key: {}, value: {}", kv.key, kv.value);
+//!     println!("key: {}, value: {}", kv.key, kv.value.into_single());
 //! }
 //!```
 //!
@@ -92,16 +94,18 @@
 //! ### Per CPU map operations
 //! Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
 //! ```ignore
+//! use rxdp::MapLike;
+//!
 //! let key = 0u32;
 //! let value = 1000u64;
 //! m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
 //! let got = m.lookup(&key).unwrap();
-//! assert_eq!(got, vec![value; rxdp::num_cpus()]);
+//! assert_eq!(got.into_vec(), vec![value; rxdp::num_cpus()]);
 
 //! // iterate through all items
 //! for kv in m.items().unwrap() {
 //!     println!("key: {}", kv.key);
-//!     for v in kv.value {
+//!     for v in kv.value.into_vec() {
 //!         println!("value: {}", v);
 //!     }
 //! }
@@ -135,7 +139,7 @@ mod utils;
 pub use error::XDPError;
 pub use map::Map;
 pub use map_batch::{is_batching_supported, BatchResult};
-pub use map_common::KeyValue;
+pub use map_common::{KeyValue, MapLike, MapValue};
 pub use map_flags::MapFlags;
 pub use map_types::MapType;
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};

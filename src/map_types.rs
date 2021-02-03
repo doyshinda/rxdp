@@ -70,7 +70,7 @@ impl From<u32> for MapType {
 }
 
 impl MapType {
-    pub(crate) fn is_per_cpu(&self) -> bool {
+    pub fn is_per_cpu(&self) -> bool {
         match *self {
             MapType::PerCPUArray
             | MapType::PerCPUHash
@@ -80,7 +80,7 @@ impl MapType {
         }
     }
 
-    pub(crate) fn is_array(&self) -> bool {
+    pub fn is_array(&self) -> bool {
         match *self {
             MapType::Array
             | MapType::PerCPUArray
