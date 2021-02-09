@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use lazy_static::lazy_static;
 use rxdp;
+use rxdp::MapLike;
 
 lazy_static! {
     pub static ref TEST_DATA_DIR: String = get_test_dir();
@@ -50,7 +51,7 @@ pub fn benchmark_hash_map(c: &mut Criterion) {
     let mut m2: rxdp::Map<u32, u32> = rxdp::Map::new(&obj, "big_hash").unwrap();
     let mut keys = Vec::new();
     let mut vals = Vec::new();
-    let total = m1.max_entries;
+    let total = m1.max_entries();
     for i in 100..(100 + total) {
         keys.push(i as u32);
         vals.push((i + 100) as u32);
@@ -58,7 +59,7 @@ pub fn benchmark_hash_map(c: &mut Criterion) {
 
     let mut keys2 = Vec::new();
     let mut vals2 = Vec::new();
-    let total = m2.max_entries;
+    let total = m2.max_entries();
     for i in 100..(100 + total) {
         keys2.push(i as u32);
         vals2.push((i + 100) as u32);
@@ -66,12 +67,12 @@ pub fn benchmark_hash_map(c: &mut Criterion) {
 
     let update = |keys: &mut Vec<u32>, vals: &mut Vec<u32>, m: &mut rxdp::Map<u32, u32>| {
         let num_added = m.update_batch(keys, vals, rxdp::MapFlags::BpfAny).unwrap();
-        assert_eq!(num_added, m.max_entries);
+        assert_eq!(num_added, m.max_entries());
     };
 
     let items = |m: &rxdp::Map<u32, u32>| {
         let r = m.items().unwrap();
-        assert_eq!(r.len(), m.max_entries as usize);
+        assert_eq!(r.len(), m.max_entries() as usize);
     };
 
     let delete = |m: &mut rxdp::Map<u32, u32>| {
