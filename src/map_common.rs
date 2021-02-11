@@ -136,7 +136,7 @@ pub trait MapLike<K, V: Default> {
         // Array map types do not support deletes, do an early return to save a syscall.
         if self.map_type().is_array() {
             set_errno(Errno(22));
-            return Err(XDPError::new("Delete not supported on this map type"));
+            fail!("Delete not supported on this map type");
         }
 
         let rc =
@@ -158,11 +158,11 @@ pub trait MapLike<K, V: Default> {
         let num_vals = values.len();
         if num_keys != num_vals {
             set_errno(Errno(22));
-            let err = format!(
+            fail!(
                 "Num keys must match num values. Got {} keys, {} values",
-                num_keys, num_vals
+                num_keys,
+                num_vals
             );
-            return Err(XDPError::new(&err));
         }
 
         if self.update_batching_not_supported() {
@@ -211,7 +211,7 @@ pub trait MapLike<K, V: Default> {
     ) -> XDPResult<BatchResult<K, MapValue<V>>> {
         if !is_batching_supported() {
             set_errno(Errno(95));
-            return Err(XDPError::new("Batching not supported"));
+            fail!("Batching not supported");
         }
 
         self.lookup_batch_impl(batch_size, next_key, false)
@@ -245,13 +245,13 @@ pub trait MapLike<K, V: Default> {
     ) -> XDPResult<BatchResult<K, MapValue<V>>> {
         if !is_batching_supported() {
             set_errno(Errno(95));
-            return Err(XDPError::new("Batching not supported"));
+            fail!("Batching not supported");
         }
 
         // Array map types do not support deletes, do an early return to save a syscall.
         if self.map_type().is_array() {
             set_errno(Errno(22));
-            return Err(XDPError::new("Delete not supported on this map type"));
+            fail!("Delete not supported on this map type");
         }
 
         self.lookup_batch_impl(batch_size, next_key, true)
@@ -264,10 +264,10 @@ pub trait MapLike<K, V: Default> {
 
 pub(crate) fn check_rc<T>(rc: i32, ret: T, err_msg: &str) -> XDPResult<T> {
     if rc < 0 {
-        Err(XDPError::new(err_msg))
-    } else {
-        Ok(ret)
+        fail!(err_msg);
     }
+
+    Ok(ret)
 }
 
 pub(crate) fn create_map(
@@ -379,8 +379,7 @@ pub(crate) fn validate_map<K>(
     };
 
     if map_fd < 0 || map.is_null() || map_def.is_null() {
-        let error_msg = format!("Unable to find map with name '{}'", map_name);
-        return Err(XDPError::new(&error_msg));
+        fail!("Unable to find map with name '{}'", map_name);
     }
 
     // Sanity check key & value sizes.
@@ -395,11 +394,11 @@ pub(crate) fn validate_map<K>(
 
     let req_key_size = size_of::<K>() as u32;
     if req_key_size != ksize {
-        let error_msg = format!(
+        fail!(
             "Incorrect key size, XDP map has size: {}, requested key size is {}.",
-            ksize, req_key_size,
+            ksize,
+            req_key_size,
         );
-        return Err(XDPError::new(&error_msg));
     }
 
     Ok((map_fd, vsize, mtype, max_entries))

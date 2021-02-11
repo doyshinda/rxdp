@@ -123,11 +123,12 @@
 //! ```
 
 #![doc(html_root_url = "https://docs.rs/rxdp/0.2.0")]
-mod map_common;
+mod macros;
 
 mod error;
 mod map;
 mod map_batch;
+mod map_common;
 mod map_flags;
 mod map_types;
 mod object;

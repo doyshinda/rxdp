@@ -28,9 +28,7 @@ impl<K: Default, V: Default> Map<K, V> {
     ) -> XDPResult<Map<K, V>> {
         if map_type.is_per_cpu() {
             set_errno(Errno(22));
-            return Err(XDPError::new(
-                "Improper map type, use rxdp::PerCpuMap::create",
-            ));
+            fail!("Improper map type, use rxdp::PerCpuMap::create");
         }
         Map::<K, V>::_create(map_type, key_size, value_size, max_entries, map_flags, true)
     }
@@ -68,16 +66,16 @@ impl<K: Default, V: Default> Map<K, V> {
         let map_type: MapType = mtype.into();
         if map_type.is_per_cpu() {
             set_errno(Errno(22));
-            return Err(XDPError::new("Improper map type, use rxdp::PerCPUMap::new"));
+            fail!("Improper map type, use rxdp::PerCPUMap::new");
         }
 
         let req_val_size = size_of::<V>() as u32;
         if req_val_size != vsize {
-            let error_msg = format!(
+            fail!(
                 "Incorrect value size, XDP map has size: {}, requested value size is {}.",
-                vsize, req_val_size,
+                vsize,
+                req_val_size,
             );
-            return Err(XDPError::new(&error_msg));
         }
 
         Ok(Map {

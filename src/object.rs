@@ -26,7 +26,7 @@ impl XDPObject {
         reset_errno();
         let object = unsafe { bpf::bpf_object__open(utils::str_to_cstring(file_path)?.as_ptr()) };
         if get_errno() != 0 {
-            Err(XDPError::new("Error creating object from ELF file"))
+            fail!("Error creating object from ELF file")
         } else {
             Ok(Self { object })
         }
@@ -48,7 +48,7 @@ impl XDPObject {
                     let pin_path = utils::str_to_cstring(&pin_path)?;
                     let rc = bpf::bpf_map__set_pin_path(map, pin_path.as_ptr());
                     if rc < 0 {
-                        return Err(XDPError::new("error setting pin path"));
+                        fail!("error setting pin path");
                     }
                 }
                 map = bpf::bpf_map__next(map, self.object);
@@ -77,7 +77,7 @@ impl XDPLoadedObject {
             }
 
             if bpf::bpf_object__load(obj) < 0 {
-                return Err(XDPError::new("Error loading object"));
+                fail!("Error loading object");
             }
         }
 
@@ -111,7 +111,7 @@ impl XDPLoadedObject {
     /// Returns a reference to an underlying eBPF program
     pub fn get_program(&self, name: &str) -> XDPResult<&XDPProgram> {
         if !self.programs.contains_key(name) {
-            return Err(XDPError::new("No such program"));
+            fail!("No such program");
         }
 
         Ok(&self.programs.get(name).unwrap())
@@ -124,7 +124,7 @@ pub fn load_pinned_object(pin_path: &str) -> XDPResult<i32> {
     let prog_fd = unsafe { bpf::bpf_obj_get(s.as_ptr()) };
 
     if prog_fd < 0 {
-        return Err(XDPError::new("Error retrieving pinned object"));
+        fail!("Error retrieving pinned object");
     }
 
     Ok(prog_fd)
@@ -135,15 +135,11 @@ unsafe fn sanitize_special_maps(map: *mut bpf::bpf_map, pin_path: &str) -> XDPRe
 
     // DEVMAP sets map_flags = 0x80 automatically. In order to reuse the
     // pinned map, the flags have to match.
-    if (*map_def).type_ == bpf::BPF_MAP_TYPE_DEVMAP {
-        if Path::new(pin_path).exists() {
-            let mut existing_flags = (*map_def).map_flags;
-            existing_flags |= 0x80;
-            if bpf::bpf_map__set_map_flags(map, existing_flags) < 0 {
-                return Err(XDPError::new(
-                    "Error setting BPF_MAP_TYPE_DEVMAP map flags for pinned map",
-                ));
-            }
+    if (*map_def).type_ == bpf::BPF_MAP_TYPE_DEVMAP && Path::new(pin_path).exists() {
+        let mut existing_flags = (*map_def).map_flags;
+        existing_flags |= 0x80;
+        if bpf::bpf_map__set_map_flags(map, existing_flags) < 0 {
+            fail!("Error setting BPF_MAP_TYPE_DEVMAP map flags for pinned map");
         }
     }
 

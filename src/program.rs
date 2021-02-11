@@ -35,7 +35,7 @@ impl XDPProgram {
     pub(crate) fn new(prog: *mut libbpf_sys::bpf_program) -> XDPResult<XDPProgram> {
         let fd = unsafe { libbpf_sys::bpf_program__fd(prog) };
         if fd < 0 {
-            return Err(XDPError::new("Error getting program fd"));
+            fail!("Error getting program fd");
         }
         Ok(XDPProgram {
             prog,
@@ -50,7 +50,7 @@ impl XDPProgram {
         let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, self.fd, flags.bits()) };
         if rc < 0 {
             set_errno(Errno(rc * -1));
-            return Err(XDPError::new("Error attaching to interface"));
+            fail!("Error attaching to interface");
         }
 
         *self.flags.borrow_mut() = flags.bits();
@@ -62,9 +62,8 @@ impl XDPProgram {
         let if_index = utils::lookup_interface_by_name(interface_name)?;
         let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, -1, *self.flags.borrow()) };
         if rc < 0 {
-            Err(XDPError::new("Error attaching to interface"))
-        } else {
-            Ok(())
+            fail!("Error attaching to interface");
         }
+        Ok(())
     }
 }

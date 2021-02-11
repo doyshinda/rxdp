@@ -8,7 +8,6 @@ use crate::map_common as mc;
 use crate::map_common::{MapLike, MapValue};
 use crate::object::XDPLoadedObject;
 use crate::result::XDPResult;
-// use crate::utils;
 use crate::{KeyValue, MapFlags, MapType, XDPError};
 
 lazy_static! {
@@ -36,7 +35,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
     ) -> XDPResult<PerCpuMap<K, V>> {
         if !map_type.is_per_cpu() {
             set_errno(Errno(22));
-            return Err(XDPError::new("Improper map type, use rxdp::Map::create"));
+            fail!("Improper map type, use rxdp::Map::create");
         }
 
         let map_fd = mc::create_map(map_type, key_size, value_size, max_entries, map_flags);
@@ -61,7 +60,7 @@ impl<K: Default, V: ByteAligned> PerCpuMap<K, V> {
         let map_type: MapType = mtype.into();
         if !map_type.is_per_cpu() {
             set_errno(Errno(22));
-            return Err(XDPError::new("Improper map type, use rxdp::Map::new"));
+            fail!("Improper map type, use rxdp::Map::new");
         }
 
         Ok(PerCpuMap {
