@@ -1,3 +1,4 @@
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use rxdp;
 use std::collections::HashMap;
 use std::path::Path;
@@ -19,6 +20,7 @@ const MAP_PERCPU_ARRAY: &'static str = "per_cpu_array";
 const MAP_PERCPU_ARRAY_BIG: &'static str = "pc_array_big";
 
 const DEV_MAP: &'static str = "dev_map";
+const PERF_MAP: &'static str = "perf_event";
 const PROG_TEST: &'static str = "rxdp_test";
 
 #[test]
@@ -350,6 +352,47 @@ fn test_items_per_cpu_big_array_map() {
     let obj = loaded_object();
     let m: rxdp::PerCpuMap<u32, u32> = rxdp::PerCpuMap::new(&obj, MAP_PERCPU_ARRAY_BIG).unwrap();
     test_items(&m);
+}
+
+#[test]
+fn test_perf_map_invalid_map_type() {
+    let obj = loaded_object();
+    let m = rxdp::PerfMap::<u32>::new(&obj, MAP_HASH);
+    assert!(m.is_err());
+}
+
+#[test]
+fn test_perf_map_no_sender() {
+    let obj = loaded_object();
+    let m = rxdp::PerfMap::<u32>::new(&obj, PERF_MAP).unwrap();
+    assert!(m.poll(10).is_err());
+}
+
+#[test]
+fn test_perf_map_events_crossbeam_channel() {
+    let obj = loaded_object();
+    let mut m = rxdp::PerfMap::<u32>::new(&obj, PERF_MAP).unwrap();
+
+    let (s, r): (Sender<rxdp::PerfEvent<u32>>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
+    m.set_sender(s);
+
+    let num_events = 10;
+    let receiver = std::thread::spawn(move || {
+        for _ in 0..num_events {
+            r.recv().unwrap();
+        }
+    });
+
+    let pair = utils::VethPair::new("192.168.100.2", "192.168.100.3");
+    let prog = obj.get_program("rxdp_perf").unwrap();
+    prog.attach_to_interface(&pair.one.name, rxdp::AttachFlags::SKB_MODE)
+        .unwrap();
+
+    for _ in 0..num_events {
+        pair.two.ping(&pair.one.ip, 1);
+        m.poll(10).unwrap();
+    }
+    receiver.join().expect("Error joining receiver thread");
 }
 
 fn test_items(m: &dyn MapLike<u32, u32>) {

@@ -1,7 +1,7 @@
 .PHONY: docker-% dev test bench
 
 docker: Dockerfile startup.sh
-	docker build -t "rxdp:latest" .
+	docker build --no-cache -t "rxdp:latest" .
 	touch docker
 
 dev:

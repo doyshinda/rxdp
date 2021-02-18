@@ -59,7 +59,7 @@
 //! }
 //!```
 //!
-//! ### Get access to an underlying eBPF [`Map`](crate::maps::Map)
+//! ### Get access to an underlying eBPF [`Map`](crate::Map)
 //! ```ignore
 //! use rxdp::MapLike;
 //!
@@ -121,6 +121,29 @@
 //!     next_key = r.next_key;
 //! }
 //! ```
+//!
+//! ### Perf event Map
+//! Perf events sent from eBPF can be retrieved via [`PerfMap`](crate::PerfMap).
+//! ```ignore
+//! let (s, r): (Sender<rxdp::PerfEvent<u32>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
+//! let mut perfmap = rxdp::PerfMap::<u32>::new(&obj, "map_name").unwrap();
+//! perfmap.set_sender(s);
+//!
+//! // Spawn a thread that will handle receiving messages
+//! thread::spawn(move || {
+//!     loop {
+//!         r.recv().map_or_else(
+//!             |e| println!("error: {:?}", e),
+//!             |event| println!("event: {:?}", event);,
+//!         );
+//!     }
+//! });
+//!
+//! // Poll the map
+//! loop {
+//!     m.poll(10000).unwrap();
+//! }
+//! ```
 
 #![doc(html_root_url = "https://docs.rs/rxdp/0.2.0")]
 mod macros;
@@ -133,6 +156,7 @@ mod map_flags;
 mod map_types;
 mod object;
 mod percpu_map;
+mod perf_map;
 mod program;
 mod result;
 mod utils;
@@ -145,5 +169,6 @@ pub use map_flags::MapFlags;
 pub use map_types::MapType;
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
 pub use percpu_map::{num_cpus, ByteAligned, PerCpuMap};
+pub use perf_map::{EventType, PerfEvent, PerfMap};
 pub use program::{AttachFlags, XDPProgram};
 pub use result::XDPResult;

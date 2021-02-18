@@ -490,6 +490,7 @@ dependencies = [
  "bitflags",
  "cc",
  "criterion",
+ "crossbeam-channel",
  "errno",
  "lazy_static",
  "libbpf-sys",

@@ -85,6 +85,13 @@ struct bpf_map_def SEC("maps") pc_array_big = {
     .max_entries = 1000,
 };
 
+struct bpf_map_def SEC("maps") perf_event = {
+    .type = BPF_MAP_TYPE_PERF_EVENT_ARRAY,
+    .key_size = sizeof(int),
+    .value_size = sizeof(__u32),
+};
+
+
 
 SEC("xdp_test")
 int rxdp_test(struct xdp_md *ctx)
@@ -96,6 +103,17 @@ SEC("xdp_drop")
 int rxdp_drop(struct xdp_md *ctx)
 {
     return XDP_DROP;
+}
+
+SEC("xdp_perf")
+int rxdp_perf(struct xdp_md *ctx)
+{
+    __u32 client = 0;
+    __u64 flags = BPF_F_CURRENT_CPU;
+    __u16 sample_size = sizeof(__u32);
+    flags |= (__u64)sample_size << 32;
+    bpf_perf_event_output(ctx, &perf_event, flags, &client, sizeof(client));
+    return XDP_PASS;
 }
 
 char _license[] SEC("license") = "GPL";
