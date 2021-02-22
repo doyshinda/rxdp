@@ -111,17 +111,6 @@
 //! }
 //! ```
 //!
-//! ### Batching support (kernel dependent)
-//! If the kernel supports it, you can do batch operations for update/lookups:
-//! ```ignore
-//! if rxdp::is_batching_supported() {
-//!     let mut next_key = None;
-//!     let r = m.lookup_batch(10u32, next_key).unwrap();
-//!     // do something with r.items...
-//!     next_key = r.next_key;
-//! }
-//! ```
-//!
 //! ### Perf event Map
 //! Perf events sent from eBPF can be retrieved via [`PerfMap`](crate::PerfMap).
 //! ```ignore
@@ -144,6 +133,17 @@
 //!     m.poll(10000).unwrap();
 //! }
 //! ```
+//! ### Batching support (kernel dependent)
+//! If the kernel supports it, you can do batch operations for update/lookups:
+//! ```ignore
+//! if rxdp::is_batching_supported() {
+//!     let mut next_key = None;
+//!     let r = m.lookup_batch(10u32, next_key).unwrap();
+//!     // do something with r.items...
+//!     next_key = r.next_key;
+//! }
+//! ```
+//!
 
 #![doc(html_root_url = "https://docs.rs/rxdp/0.2.0")]
 mod macros;

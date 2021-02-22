@@ -66,35 +66,60 @@ let key = 0u32;
 let value = 1000u64;
 m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
 let got = m.lookup(&key).unwrap();
-assert_eq!(value, got);
+assert_eq!(value, got.into_single());
 
 // iterate through all items
 for kv in m.items().unwrap() {
-    println!("key: {}, value: {}", kv.key, kv.value);
+    println!("key: {}, value: {}", kv.key, kv.value.into_single());
 }
 ```
 
 ### For per-cpu maps, use `PerCpuMap`
 ```rust
-let m: rxdp::Map<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap();
+let m: rxdp::PerCpuMap<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap();
 ```
 **NOTE**: the key size **MUST** match the key size defined in the eBPF code, otherwise creating the map will fail.
 
 ### Per CPU map operations
 Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
 ```rust
+use rxdp::MapLike;
+
 let key = 0u32;
 let value = 1000u64;
 m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
 let got = m.lookup(&key).unwrap();
-assert_eq!(got, vec![value; rxdp::num_cpus()]);
+assert_eq!(got.into_vec(), vec![value; rxdp::num_cpus()]);
 
 // iterate through all items
 for kv in m.items().unwrap() {
     println!("key: {}", kv.key);
-    for v in kv.value {
+    for v in kv.value.into_vec() {
         println!("value: {}", v);
     }
+}
+```
+
+### Perf event Map
+Perf events sent from eBPF can be retrieved via `PerfMap`.
+```rust
+let (s, r): (Sender<rxdp::PerfEvent<u32>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
+let mut perfmap = rxdp::PerfMap::<u32>::new(&obj, "map_name").unwrap();
+perfmap.set_sender(s);
+
+// Spawn a thread that will handle receiving messages
+thread::spawn(move || {
+    loop {
+        r.recv().map_or_else(
+            |e| println!("error: {:?}", e),
+            |event| println!("event: {:?}", event);,
+        );
+    }
+});
+
+// Poll the map
+loop {
+    m.poll(10000).unwrap();
 }
 ```
 
