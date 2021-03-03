@@ -163,7 +163,7 @@
 //! ```
 //!
 
-#![doc(html_root_url = "https://docs.rs/rxdp/0.3.0")]
+#![doc(html_root_url = "https://docs.rs/rxdp/0.3.1")]
 mod macros;
 
 mod error;

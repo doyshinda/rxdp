@@ -1,6 +1,6 @@
 [package]
 name = "rxdp"
-version = "0.3.0" # Keep html_root_url in sync
+version = "0.3.1" # Keep html_root_url in sync
 authors = ["Abe Friesen <abefriesen.af@gmail.com>"]
 license = "MIT"
 readme = "README.md"
