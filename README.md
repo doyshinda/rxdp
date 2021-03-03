@@ -62,6 +62,8 @@ let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
 
 ### Perform map operations
 ```rust
+use rxdp::MapLike;
+
 let key = 0u32;
 let value = 1000u64;
 m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
@@ -81,7 +83,7 @@ let m: rxdp::PerCpuMap<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap
 **NOTE**: the key size **MUST** match the key size defined in the eBPF code, otherwise creating the map will fail.
 
 ### Per CPU map operations
-Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
+Per CPU maps return the `MapValue::Multi(Vec<T>)` variant during lookup, one for each possible CPU:
 ```rust
 use rxdp::MapLike;
 
@@ -101,25 +103,17 @@ for kv in m.items().unwrap() {
 ```
 
 ### Perf event Map
-Perf events sent from eBPF can be retrieved via `PerfMap`.
+Perf events sent from eBPF can be retrieved via [`PerfMap`](crate::PerfMap).
 ```rust
-let (s, r): (Sender<rxdp::PerfEvent<u32>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
 let mut perfmap = rxdp::PerfMap::<u32>::new(&obj, "map_name").unwrap();
-perfmap.set_sender(s);
+let r: Receiver<rxdp::PerfEvent<u32>> = perfmap.start_polling(10000);
 
-// Spawn a thread that will handle receiving messages
-thread::spawn(move || {
-    loop {
-        r.recv().map_or_else(
-            |e| println!("error: {:?}", e),
-            |event| println!("event: {:?}", event);,
-        );
-    }
-});
-
-// Poll the map
+// Wait for events on the receiver side of the channel
 loop {
-    m.poll(10000).unwrap();
+    r.recv().map_or_else(
+        |e| println!("error: {:?}", e),
+        |event| println!("event: {:?}", event),
+    );
 }
 ```
 

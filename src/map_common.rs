@@ -186,10 +186,15 @@ pub trait MapLike<K, V: Default> {
     /// Lookup a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
-    /// ```ignore
-    /// let next_key = None;
+    /// ```no_run
+    /// # use rxdp;
+    /// # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
+    /// # let m: rxdp::Map<u32, u64> = rxdp::Map::new(&obj, "map_name").unwrap();
+    /// use rxdp::MapLike;
+    ///
+    /// let mut next_key = None;
     /// loop {
-    ///     let r = m.lookup_batch(10u32, next_key)?;
+    ///     let r = m.lookup_batch(10u32, next_key).unwrap();
     ///     // do something with `r.items`...
     ///
     ///     if r.next_key.is_none() {
@@ -220,10 +225,15 @@ pub trait MapLike<K, V: Default> {
     /// Lookup and delete a batch of elements from the underlying eBPF map. Returns a
     /// [`BatchResult`](crate::BatchResult) that includes the next key to pass in to
     /// continue looking up elements:
-    /// ```ignore
-    /// let next_key = None;
+    /// ```no_run
+    /// # use rxdp;
+    /// # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
+    /// # let m: rxdp::Map<u32, u64> = rxdp::Map::new(&obj, "map_name").unwrap();
+    /// use rxdp::MapLike;
+    ///
+    /// let mut next_key = None;
     /// loop {
-    ///     let r = m.lookup_and_delete_batch(10u32, next_key)?;
+    ///     let r = m.lookup_and_delete_batch(10u32, next_key).unwrap();
     ///     // do something with `r.items`...
     ///
     ///     if r.next_key.is_none() {

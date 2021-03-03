@@ -1,16 +1,15 @@
-use crossbeam_channel::Sender;
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use errno::{set_errno, Errno};
-use libbpf_sys as bpf;
-use std::os::raw::c_void;
+use std::marker::PhantomData;
 
 use crate::map_common as mc;
+use crate::perf_event_handler::EventHandler;
 use crate::{MapType, XDPError, XDPLoadedObject, XDPResult};
 
 /// Used for working with a perf eBPF map.
 pub struct PerfMap<T> {
     map_fd: i32,
-    pb: *mut bpf::perf_buffer,
-    sender: Option<Sender<PerfEvent<T>>>,
+    _t: PhantomData<T>,
 }
 
 /// The event sent from eBPF.
@@ -31,7 +30,7 @@ pub enum EventType<T> {
     Lost(u64),
 }
 
-impl<T: Copy> PerfMap<T> {
+impl<T: 'static + Copy + Send> PerfMap<T> {
     /// Get access to the eBPF map `map_name`.
     ///
     /// # Errors
@@ -48,74 +47,20 @@ impl<T: Copy> PerfMap<T> {
         }
         Ok(PerfMap {
             map_fd,
-            pb: std::ptr::null_mut(),
-            sender: None,
+            _t: PhantomData,
         })
     }
 
-    /// The channel to which every `PerfEvent` will be sent.
-    pub fn set_sender(&mut self, sender: Sender<PerfEvent<T>>) {
-        self.init_perf_buffer();
-        self.sender = Some(sender);
-    }
-
-    /// Poll the underlying eBPF map for events, waiting up to `time_ms` milliseconds for an
-    /// event. Returns the number of events received. This should be called in a loop.
-    pub fn poll(&self, time_ms: i32) -> XDPResult<i32> {
-        if self.pb.is_null() || self.sender.is_none() {
-            set_errno(Errno(22));
-            fail!("No sender set");
-        }
-        let rc = unsafe { bpf::perf_buffer__poll(self.pb, time_ms) };
-        mc::check_rc(rc, rc, "Poll error")
-    }
-
-    fn init_perf_buffer(&mut self) {
-        let pb_opts = bpf::perf_buffer_opts {
-            sample_cb: Some(PerfMap::<T>::sample_event),
-            lost_cb: Some(PerfMap::<T>::lost_event),
-            ctx: self as *mut _ as *mut c_void,
-        };
-
-        self.pb = unsafe { bpf::perf_buffer__new(self.map_fd, 8, &pb_opts) };
-    }
-
-    fn send_perf_event(&self, perfevent: PerfEvent<T>) {
-        self.sender.as_ref().and_then(|s| s.send(perfevent).ok());
-    }
-
-    fn handle_sample_event(&self, cpu: i32, data: *mut c_void, _size: u32) {
-        let r: &mut T = unsafe { &mut *(data as *mut T) };
-        let perfevent = PerfEvent {
-            cpu,
-            event: EventType::Sample(*r),
-        };
-        self.send_perf_event(perfevent);
-    }
-
-    fn handle_lost_event(&self, cpu: i32, cnt: u64) {
-        let perfevent = PerfEvent {
-            cpu,
-            event: EventType::Lost(cnt),
-        };
-        self.send_perf_event(perfevent);
-    }
-
-    #[no_mangle]
-    unsafe extern "C" fn sample_event(ctx: *mut c_void, cpu: i32, data: *mut c_void, size: u32) {
-        let perfmap: &mut PerfMap<T> = &mut *(ctx as *mut PerfMap<T>);
-        perfmap.handle_sample_event(cpu, data, size);
-    }
-
-    #[no_mangle]
-    unsafe extern "C" fn lost_event(ctx: *mut c_void, cpu: i32, cnt: u64) {
-        let perfmap: &mut PerfMap<T> = &mut *(ctx as *mut PerfMap<T>);
-        perfmap.handle_lost_event(cpu, cnt);
-    }
-}
-
-impl<T> Drop for PerfMap<T> {
-    fn drop(&mut self) {
-        unsafe { bpf::perf_buffer__free(self.pb) }
+    /// Start polling the underlying eBPF map for events, waiting up to `time_ms` milliseconds
+    /// for an event. Returns the receiver side of an unbounded channel, which will receive all
+    /// events.
+    pub fn start_polling(&mut self, time_ms: i32) -> Receiver<PerfEvent<T>> {
+        let (s, r): (Sender<PerfEvent<T>>, Receiver<PerfEvent<T>>) = unbounded();
+        let fd = self.map_fd;
+        std::thread::spawn(move || {
+            let mut e = EventHandler::new(s, fd);
+            e.poll(time_ms);
+        });
+        r
     }
 }

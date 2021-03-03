@@ -1,4 +1,3 @@
-use crossbeam_channel::{unbounded, Receiver, Sender};
 use rxdp;
 use std::collections::HashMap;
 use std::path::Path;
@@ -362,19 +361,11 @@ fn test_perf_map_invalid_map_type() {
 }
 
 #[test]
-fn test_perf_map_no_sender() {
-    let obj = loaded_object();
-    let m = rxdp::PerfMap::<u32>::new(&obj, PERF_MAP).unwrap();
-    assert!(m.poll(10).is_err());
-}
-
-#[test]
 fn test_perf_map_events_crossbeam_channel() {
     let obj = loaded_object();
     let mut m = rxdp::PerfMap::<u32>::new(&obj, PERF_MAP).unwrap();
 
-    let (s, r): (Sender<rxdp::PerfEvent<u32>>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
-    m.set_sender(s);
+    let r = m.start_polling(1000);
 
     let num_events = 10;
     let receiver = std::thread::spawn(move || {
@@ -390,7 +381,6 @@ fn test_perf_map_events_crossbeam_channel() {
 
     for _ in 0..num_events {
         pair.two.ping(&pair.one.ip, 1);
-        m.poll(10).unwrap();
     }
     receiver.join().expect("Error joining receiver thread");
 }

@@ -16,7 +16,7 @@
 //!
 //! ## Examples
 //! ### Create an object from an ELF file
-//! ```ignore
+//! ```no_run
 //! use rxdp;
 //!
 //! let obj_path = "/path/to/elf/file";
@@ -33,22 +33,30 @@
 //! Maps that have already been pinned will be loaded from the fs, provided the map name
 //! matches the name in the fs. Any new maps in the HashSet will set the pin path so that
 //! once the program is loaded, they will get automatically pinned.
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap();
+//! # use std::collections::HashSet;
+//!
 //! let mut pinned_maps = HashSet::new();
 //! let pin_path = None; // Will default to /sys/fs/bpf
 //! pinned_maps.insert("my_map_name".to_string());
-//! obj.pinned_maps(pinned_maps, pin_path).unwrap();
+//! obj.pinned_maps(&pinned_maps, pin_path).unwrap();
 //! ```
 //!
 //! ### Load the object (programs + maps) into the kernel.
 //! This will consume the [`XDPObject`](crate::object::XDPObject) created above and return
 //! an [`XDPLoadedObject`](crate::object::XDPLoadedObject).
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap();
 //! let obj = obj.load().unwrap();
 //! ```
 //!
 //! ### Get a reference to a specific XDP program and attach it to an interface
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
 //! let dev = "eth0";
 //! let flags = rxdp::AttachFlags::SKB_MODE;
 //!
@@ -60,19 +68,23 @@
 //!```
 //!
 //! ### Get access to an underlying eBPF [`Map`](crate::Map)
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
 //! use rxdp::MapLike;
 //!
-//! let m: rxdp::Map<u32, u64> = match rxdp::Map::new(&obj, "map_name") {
-//!     Ok(m) => m,
-//!     Err(e) => panic!("{:?}", e),
-//! };
+//! let m: rxdp::Map<u32, u64> = rxdp::Map::new(&obj, "map_name").unwrap();
 //!```
 //! **NOTE**: the key/value sizes **MUST** match the key/value sizes defined in the eBPF code,
 //! otherwise creating the map will fail.
 //!
 //! ### Perform map operations
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
+//! # let m: rxdp::Map<u32, u64> = rxdp::Map::new(&obj, "map_name").unwrap();
+//! use rxdp::MapLike;
+//!
 //! let key = 0u32;
 //! let value = 1000u64;
 //! m.update(&key, &value, rxdp::MapFlags::BpfAny).unwrap();
@@ -86,14 +98,20 @@
 //!```
 //!
 //! ### For per-cpu maps, use [`PerCpuMap`](crate::PerCpumap)
-//! ```ignore
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
 //! let m: rxdp::PerCpuMap<u32, u64> = rxdp::PerCpuMap::new(&obj, "map_name").unwrap();
 //! ```
 //! **NOTE**: the key size **MUST** match the key size defined in the eBPF code, otherwise creating the map will fail.
 
 //! ### Per CPU map operations
-//! Per CPU maps return a `Vec<T>` of results in lookup, one for each possible CPU:
-//! ```ignore
+//! Per CPU maps return the [`MapValue::Multi(Vec<T>)`](crate::MapValue) variant during lookup,
+//! one for each possible CPU:
+//! ```no_run
+//! # use rxdp;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
+//! # let m = rxdp::PerCpuMap::<u32, u64>::new(&obj, "map_name").unwrap();
 //! use rxdp::MapLike;
 //!
 //! let key = 0u32;
@@ -113,29 +131,29 @@
 //!
 //! ### Perf event Map
 //! Perf events sent from eBPF can be retrieved via [`PerfMap`](crate::PerfMap).
-//! ```ignore
-//! let (s, r): (Sender<rxdp::PerfEvent<u32>, Receiver<rxdp::PerfEvent<u32>>) = unbounded();
+//! ```no_run
+//! # use rxdp;
+//! # use crossbeam_channel::Receiver;
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
 //! let mut perfmap = rxdp::PerfMap::<u32>::new(&obj, "map_name").unwrap();
-//! perfmap.set_sender(s);
+//! let r: Receiver<rxdp::PerfEvent<u32>> = perfmap.start_polling(10000);
 //!
-//! // Spawn a thread that will handle receiving messages
-//! thread::spawn(move || {
-//!     loop {
-//!         r.recv().map_or_else(
-//!             |e| println!("error: {:?}", e),
-//!             |event| println!("event: {:?}", event);,
-//!         );
-//!     }
-//! });
-//!
-//! // Poll the map
+//! // Wait for events on the receiver side of the channel
 //! loop {
-//!     m.poll(10000).unwrap();
+//!     r.recv().map_or_else(
+//!         |e| println!("error: {:?}", e),
+//!         |event| println!("event: {:?}", event),
+//!     );
 //! }
+//!
 //! ```
 //! ### Batching support (kernel dependent)
 //! If the kernel supports it, you can do batch operations for update/lookups:
-//! ```ignore
+//! ```no_run
+//! # let obj = rxdp::XDPObject::new("/tmp/foo").unwrap().load().unwrap();
+//! # let m: rxdp::Map<u32, u64> = rxdp::Map::new(&obj, "map_name").unwrap();
+//! use rxdp::MapLike;
+//!
 //! if rxdp::is_batching_supported() {
 //!     let mut next_key = None;
 //!     let r = m.lookup_batch(10u32, next_key).unwrap();
@@ -156,6 +174,7 @@ mod map_flags;
 mod map_types;
 mod object;
 mod percpu_map;
+mod perf_event_handler;
 mod perf_map;
 mod program;
 mod result;
