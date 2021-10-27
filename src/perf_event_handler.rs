@@ -1,3 +1,4 @@
+#![allow(no_mangle_generic_items)]
 use crossbeam_channel::Sender;
 use libbpf_sys as bpf;
 use std::os::raw::c_void;

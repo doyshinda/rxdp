@@ -9,7 +9,7 @@ repository = "https://github.com/doyshinda/rxdp"
 documentation = "https://docs.rs/rxdp"
 description = "Bindings for interoperating with XDP programs and eBPF maps."
 categories = ["api-bindings"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "rxdp"
