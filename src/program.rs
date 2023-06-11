@@ -11,6 +11,7 @@ pub struct XDPProgram {
     prog: *const libbpf_sys::bpf_program,
     fd: c_int,
     flags: RefCell<u32>,
+    link: RefCell<*mut libbpf_sys::bpf_link>,
 }
 
 bitflags::bitflags! {
@@ -41,6 +42,7 @@ impl XDPProgram {
             prog,
             fd,
             flags: RefCell::new(0u32),
+            link: RefCell::new(std::ptr::null_mut()),
         })
     }
 
@@ -64,6 +66,20 @@ impl XDPProgram {
         if rc < 0 {
             fail!("Error attaching to interface");
         }
+        Ok(())
+    }
+
+    /// Attach a BPF program
+    pub fn attach(&self) -> XDPResult<()> {
+        let link = unsafe {
+            let link = libbpf_sys::bpf_program__attach(self.prog as *mut libbpf_sys::bpf_program);
+            let err = libbpf_sys::libbpf_get_error(link as *const _ as *const std::os::raw::c_void);
+            if err != 0 {
+                fail!("error attaching: {}", err);
+            }
+            link
+        };
+        *self.link.borrow_mut() = link;
         Ok(())
     }
 }

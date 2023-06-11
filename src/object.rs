@@ -91,7 +91,9 @@ impl XDPLoadedObject {
                 let prog_name = utils::cstring_to_str(bpf::bpf_program__name(prog));
                 programs.insert(prog_name.clone(), XDPProgram::new(prog)?);
                 program_names.push(prog_name);
-                bpf::bpf_program__set_expected_attach_type(prog, bpf::BPF_XDP);
+                if bpf::bpf_program__get_type(prog) == bpf::BPF_PROG_TYPE_XDP {
+                    bpf::bpf_program__set_expected_attach_type(prog, bpf::BPF_XDP);
+                }
                 prog = bpf::bpf_program__next(prog, obj);
             }
         }

@@ -27,7 +27,15 @@ impl<T: Copy> EventHandler<T> {
             ctx: self as *mut _ as *mut c_void,
         };
 
-        self.pb = unsafe { bpf::perf_buffer__new(self.map_fd, 8, &pb_opts) };
+        self.pb = unsafe {
+            let pb = bpf::perf_buffer__new(self.map_fd, 8, &pb_opts);
+            let err = libbpf_sys::libbpf_get_error(pb as *const _ as *const std::os::raw::c_void);
+            if err != 0 {
+                // TODO: handle this
+                println!("error creating perf buff: {}", err);
+            }
+            pb
+        };
     }
 
     pub(crate) fn poll(&mut self, time_ms: i32) {
