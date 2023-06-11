@@ -1,5 +1,5 @@
 use crate::error::{get_errno, reset_errno, XDPError};
-use crate::program::XDPProgram;
+use crate::program::Program;
 use crate::result::XDPResult;
 use crate::utils;
 
@@ -15,7 +15,7 @@ pub struct XDPObject {
 /// Struct for an XDP object that has been loaded
 pub struct XDPLoadedObject {
     pub(crate) object: *mut bpf::bpf_object,
-    programs: HashMap<String, XDPProgram>,
+    programs: HashMap<String, Program>,
     program_names: Vec<String>,
 }
 
@@ -89,7 +89,7 @@ impl XDPLoadedObject {
             prog = bpf::bpf_program__next(prog, obj);
             while !prog.is_null() {
                 let prog_name = utils::cstring_to_str(bpf::bpf_program__name(prog));
-                programs.insert(prog_name.clone(), XDPProgram::new(prog)?);
+                programs.insert(prog_name.clone(), Program::new(prog)?);
                 program_names.push(prog_name);
                 if bpf::bpf_program__get_type(prog) == bpf::BPF_PROG_TYPE_XDP {
                     bpf::bpf_program__set_expected_attach_type(prog, bpf::BPF_XDP);
@@ -111,7 +111,7 @@ impl XDPLoadedObject {
     }
 
     /// Returns a reference to an underlying eBPF program
-    pub fn get_program(&self, name: &str) -> XDPResult<&XDPProgram> {
+    pub fn get_program(&self, name: &str) -> XDPResult<&Program> {
         if !self.programs.contains_key(name) {
             fail!("No such program");
         }

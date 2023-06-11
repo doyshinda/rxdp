@@ -5,9 +5,9 @@ use crate::utils;
 use errno::{set_errno, Errno};
 use std::{cell::RefCell, os::raw::c_int};
 
-/// Convenience wrapper around an XDP program
+/// Convenience wrapper around a BPF program
 #[allow(dead_code)]
-pub struct XDPProgram {
+pub struct Program {
     prog: *const libbpf_sys::bpf_program,
     fd: c_int,
     flags: RefCell<u32>,
@@ -27,18 +27,18 @@ bitflags::bitflags! {
     }
 }
 
-impl XDPProgram {
+impl Program {
     /// Returns the file descriptor for this program.
     pub fn fd(&self) -> i32 {
         self.fd
     }
 
-    pub(crate) fn new(prog: *mut libbpf_sys::bpf_program) -> XDPResult<XDPProgram> {
+    pub(crate) fn new(prog: *mut libbpf_sys::bpf_program) -> XDPResult<Program> {
         let fd = unsafe { libbpf_sys::bpf_program__fd(prog) };
         if fd < 0 {
             fail!("Error getting program fd");
         }
-        Ok(XDPProgram {
+        Ok(Program {
             prog,
             fd,
             flags: RefCell::new(0u32),
@@ -60,7 +60,7 @@ impl XDPProgram {
     }
 
     /// Detaches the XDP program from an interface
-    pub fn detach(&self, interface_name: &str) -> XDPResult<()> {
+    pub fn detach_from_interface(&self, interface_name: &str) -> XDPResult<()> {
         let if_index = utils::lookup_interface_by_name(interface_name)?;
         let rc = unsafe { libbpf_sys::bpf_set_link_xdp_fd(if_index, -1, *self.flags.borrow()) };
         if rc < 0 {

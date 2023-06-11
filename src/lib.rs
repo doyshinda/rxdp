@@ -189,5 +189,5 @@ pub use map_types::MapType;
 pub use object::{load_pinned_object, XDPLoadedObject, XDPObject};
 pub use percpu_map::{num_cpus, ByteAligned, PerCpuMap};
 pub use perf_map::{EventType, PerfEvent, PerfMap};
-pub use program::{AttachFlags, XDPProgram};
+pub use program::{AttachFlags, Program};
 pub use result::XDPResult;
