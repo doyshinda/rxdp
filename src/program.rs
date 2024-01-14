@@ -82,4 +82,18 @@ impl Program {
         *self.link.borrow_mut() = link;
         Ok(())
     }
+
+    /// Attach a BPF uprobe program
+    pub fn attach_uprobe(&self) -> XDPResult<()> {
+        let link = unsafe {
+            let link = libbpf_sys::bpf_program__attach_uprobe(self.prog as *mut libbpf_sys::bpf_program);
+            let err = libbpf_sys::libbpf_get_error(link as *const _ as *const std::os::raw::c_void);
+            if err != 0 {
+                fail!("error attaching: {}", err);
+            }
+            link
+        };
+        *self.link.borrow_mut() = link;
+        Ok(())
+    }
 }
